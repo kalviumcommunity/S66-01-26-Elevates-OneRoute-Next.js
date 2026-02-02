@@ -247,15 +247,51 @@ When a violation is detected and auto-fixed:
 
 ## 📸 Screenshot (Local App Running)
 
-
 ```md
 ![Dashboard Screenshot](./screenshots/dashboard.png)
 ```
 
 ---
 
+## 🔐 Development Setup: Environment Variables
+
+This project uses environment variables to manage sensitive configuration such as database credentials and authentication secrets.
+
+Here’s a **short, clean, and professional** README section you can paste directly:
+
+---
+
+## 🔐 Environment Variables
+
+This project uses environment variables to manage sensitive configuration such as database credentials and authentication secrets.
+
+### `.env.example`
+
+```env
+PORT=5000
+NODE_ENV=development
+MONGO_URI=mongodb://localhost:27017/one-route
+JWT_SECRET=your_jwt_secret_here
+JWT_EXPIRES_IN=7d
+CLIENT_URL=http://localhost:3000
+```
+
+### Setup
+
+```bash
+copy .env.example .env
+```
+
+Update the values as per your local or production environment and restart the server.
+
+### Notes
+
+* `.env` files are ignored via `.gitignore`
+* Never commit real secrets
+* Use platform-managed environment variables in production
+
+---
+
 ## 🏁 Final Note
 
-** One Route** delivers a focused MVP that solves a real student pain point while maintaining a scalable architecture for future growth. The project is structured, testable, and demo-ready within a 4-week sprint.
-
-
+**One Route** delivers a focused MVP that solves a real student pain point while maintaining a scalable architecture for future growth. The project is structured, testable, and demo-ready within a 4-week sprint.
