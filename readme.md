@@ -69,7 +69,7 @@ ios-one-route/
 ### 2️⃣ Clone the Repository
 
 ```bash
-git https://github.com/kalviumcommunity/S66-01-26-Elevates-OneRoute-Next.js
+git clone https://github.com/kalviumcommunity/S66-01-26-Elevates-OneRoute-Next.js
 cd one-route
 ```
 
@@ -78,7 +78,6 @@ cd one-route
 ```bash
 cd backend
 npm install
-cp .env.example .env
 npm run dev
 ```
 
@@ -248,7 +247,6 @@ When a violation is detected and auto-fixed:
 
 ## 📸 Screenshot (Local App Running)
 
-> 📌 *Add a screenshot here before final submission*
 
 ```md
 ![Dashboard Screenshot](./screenshots/dashboard.png)
@@ -260,13 +258,4 @@ When a violation is detected and auto-fixed:
 
 ** One Route** delivers a focused MVP that solves a real student pain point while maintaining a scalable architecture for future growth. The project is structured, testable, and demo-ready within a 4-week sprint.
 
----
 
-If you want, I can also:
-
-* Convert this into **college-assignment format**
-* Shorten it to a **1-page README**
-* Customize it for **SIH / hackathon submission**
-* Add **badges, diagrams, or API docs**
-
-Just say the word 🚀
