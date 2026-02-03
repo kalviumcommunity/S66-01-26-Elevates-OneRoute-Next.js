@@ -288,6 +288,55 @@ copy .env.example .env
 
 ---
 
+## 🐳 Containerized Deployment
+
+### Dockerfile Overview
+
+* [Dockerfile](Dockerfile) builds the Next.js app that lives inside the `one-route` workspace using the lightweight `node:20-alpine` base image.
+* The working directory is `/app`, `package*.json` files are copied in first for efficient layer caching, and `npm install` pulls dependencies.
+* `COPY one-route .` brings the actual Next.js source into the container, `npm run build` runs the production build, and the container starts via `npm run start` on port 3000.
+
+### docker-compose Services
+
+* [docker-compose.yml](docker-compose.yml) declares every service on the shared `localnet` bridge network for simple name-based service discovery.
+* **app** – Builds from the local Dockerfile, maps port `3000:3000`, and injects `DATABASE_URL` plus `REDIS_URL` pointing at the internal service names (`db`, `redis`).
+* **db** – Uses `postgres:15-alpine`, persists data in the `db_data` named volume, exposes port `5432`, and sets user/password/db via environment variables.
+* **redis** – Runs `redis:7-alpine`, exposes port `6379`, and shares the same network for low-latency caching support.
+
+### Networks, Environment Variables, and Volumes
+
+* `localnet` keeps traffic scoped between the three containers while still allowing explicit port publishing to the host.
+* `DATABASE_URL` and `REDIS_URL` make the Next.js server configurable without hard-coding internal addresses; override them in `.env` or Compose overrides for different environments.
+* `db_data` stores PostgreSQL state outside the container lifecycle so database restarts do not wipe tables.
+
+### Running the Stack
+
+```bash
+docker-compose up --build
+```
+
+* Reach the web app at `http://localhost:3000` once `npm run start` logs “ready - started server”.
+* Validate PostgreSQL with `docker exec -it postgres_db psql -U postgres -d mydb` and Redis with `docker exec -it redis_cache redis-cli PING`.
+* Use `docker ps` to confirm all containers are healthy; stop everything with `docker-compose down` (add `-v` if you deliberately want to drop `db_data`).
+
+### Example Logs & Verification Artifacts
+
+```
+app_1     | ready - started server on 0.0.0.0:3000, url: http://localhost:3000
+db_1      | database system is ready to accept connections
+redis_1   | 1:M * Ready to accept connections
+```
+
+Capture screenshots or copy terminal output similar to the above after running `docker ps` to show each container status for your submission.
+
+### Reflection & Troubleshooting Notes
+
+* Because the Next.js project lives under `one-route/`, the Dockerfile copies dependency manifests from that folder instead of the repo root—this avoids missing-module errors at build time.
+* Port conflicts on 3000, 5432, or 6379 can be resolved by editing the `ports` mappings in [docker-compose.yml](docker-compose.yml); keep the container-side port unchanged so internal communication still works.
+* Slow cold builds are usually due to dependency installs; rely on Docker layer caching by avoiding unnecessary changes to `package*.json` for incremental rebuilds.
+
+---
+
 ## 🏁 Final Note
 
 **One Route** delivers a focused MVP that solves a real student pain point while maintaining a scalable architecture for future growth. The project is structured, testable, and demo-ready within a 4-week sprint.
