@@ -247,56 +247,51 @@ When a violation is detected and auto-fixed:
 
 ## 📸 Screenshot (Local App Running)
 
-
 ```md
 ![Dashboard Screenshot](./screenshots/dashboard.png)
 ```
 
 ---
 
-## 🧭 Contribution & Workflow ✅
+## 🔐 Development Setup: Environment Variables
 
-### Branch Naming Conventions (🔀)
-Use consistent, descriptive branch names:
+This project uses environment variables to manage sensitive configuration such as database credentials and authentication secrets.
 
-- `feature/<feature-name>` — new features (e.g., `feature/login-auth`)
-- `fix/<bug-name>` — bug fixes (e.g., `fix/navbar-alignment`)
-- `chore/<task-name>` — maintenance or tooling updates
-- `docs/<update-name>` — documentation changes (e.g., `docs/update-readme`)
+Here’s a **short, clean, and professional** README section you can paste directly:
 
-Keep names lowercase and hyphen-separated.
+---
 
-### Pull Request Template (🔁)
-We use a PR template to standardize submissions. See `.github/pull_request_template.md`.
-Fill the **Summary**, **Changes Made**, and **Screenshots / Evidence** sections and complete the PR **Checklist** before requesting review.
+## 🔐 Environment Variables
 
-### Code Review Checklist (🔍)
-Reviewers should follow `.github/CODE_REVIEW_CHECKLIST.md` and verify:
-- Code builds and functionality is verified locally
-- No console errors or warnings
-- ESLint + Prettier checks pass
-- Documentation and comments are meaningful
-- No sensitive data is exposed
+This project uses environment variables to manage sensitive configuration such as database credentials and authentication secrets.
 
-### Branch Protection Rules (⚙️)
-Repository admins should configure branch protection for `main`:
-1. Settings → Branches → Add rule → `main`
-2. Require pull request reviews before merging
-3. Require status checks to pass (lint/test workflows)
-4. Require branches to be up to date before merging
-5. Disallow direct pushes to `main`
+### `.env.example`
 
-### Why this workflow helps (💡)
-- Promotes code quality and reduces regressions
-- Improves traceability and collaboration
-- Keeps reviews focused and faster
+```env
+PORT=5000
+NODE_ENV=development
+MONGO_URI=mongodb://localhost:27017/one-route
+JWT_SECRET=your_jwt_secret_here
+JWT_EXPIRES_IN=7d
+CLIENT_URL=http://localhost:3000
+```
 
-> Tip: Add screenshots of a PR showing checks passing and resolved review comments (store images in `./screenshots/`).
+### Setup
+
+```bash
+copy .env.example .env
+```
+
+Update the values as per your local or production environment and restart the server.
+
+### Notes
+
+* `.env` files are ignored via `.gitignore`
+* Never commit real secrets
+* Use platform-managed environment variables in production
 
 ---
 
 ## 🏁 Final Note
 
-** One Route** delivers a focused MVP that solves a real student pain point while maintaining a scalable architecture for future growth. The project is structured, testable, and demo-ready within a 4-week sprint.
-
-
+**One Route** delivers a focused MVP that solves a real student pain point while maintaining a scalable architecture for future growth. The project is structured, testable, and demo-ready within a 4-week sprint.
