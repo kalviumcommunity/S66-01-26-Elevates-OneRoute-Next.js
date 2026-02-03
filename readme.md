@@ -254,6 +254,47 @@ When a violation is detected and auto-fixed:
 
 ---
 
+## 🧭 Contribution & Workflow ✅
+
+### Branch Naming Conventions (🔀)
+Use consistent, descriptive branch names:
+
+- `feature/<feature-name>` — new features (e.g., `feature/login-auth`)
+- `fix/<bug-name>` — bug fixes (e.g., `fix/navbar-alignment`)
+- `chore/<task-name>` — maintenance or tooling updates
+- `docs/<update-name>` — documentation changes (e.g., `docs/update-readme`)
+
+Keep names lowercase and hyphen-separated.
+
+### Pull Request Template (🔁)
+We use a PR template to standardize submissions. See `.github/pull_request_template.md`.
+Fill the **Summary**, **Changes Made**, and **Screenshots / Evidence** sections and complete the PR **Checklist** before requesting review.
+
+### Code Review Checklist (🔍)
+Reviewers should follow `.github/CODE_REVIEW_CHECKLIST.md` and verify:
+- Code builds and functionality is verified locally
+- No console errors or warnings
+- ESLint + Prettier checks pass
+- Documentation and comments are meaningful
+- No sensitive data is exposed
+
+### Branch Protection Rules (⚙️)
+Repository admins should configure branch protection for `main`:
+1. Settings → Branches → Add rule → `main`
+2. Require pull request reviews before merging
+3. Require status checks to pass (lint/test workflows)
+4. Require branches to be up to date before merging
+5. Disallow direct pushes to `main`
+
+### Why this workflow helps (💡)
+- Promotes code quality and reduces regressions
+- Improves traceability and collaboration
+- Keeps reviews focused and faster
+
+> Tip: Add screenshots of a PR showing checks passing and resolved review comments (store images in `./screenshots/`).
+
+---
+
 ## 🏁 Final Note
 
 ** One Route** delivers a focused MVP that solves a real student pain point while maintaining a scalable architecture for future growth. The project is structured, testable, and demo-ready within a 4-week sprint.
