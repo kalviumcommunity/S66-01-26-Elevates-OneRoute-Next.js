@@ -1,0 +1,169 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ===== CORE ENTITIES =====
+
+// User model - represents students, mentors, and admins
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String
+  password  String
+  role      Role     @default(STUDENT) // STUDENT, MENTOR, ADMIN
+  bio       String?
+  avatar    String?  // URL to profile picture
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  applications Application[] @relation("StudentApplications")
+  feedbacks    Feedback[]    @relation("MentorFeedback")
+  comments     Comment[]
+  mentoredBy   Mentorship[]  @relation("StudentMentorship")
+  mentors      Mentorship[]  @relation("MentorRelation")
+
+  @@index([role])
+  @@index([email])
+}
+
+enum Role {
+  STUDENT
+  MENTOR
+  ADMIN
+}
+
+// Internship model - represents internship opportunities
+model Internship {
+  id          Int       @id @default(autoincrement())
+  title       String
+  company     String
+  description String?
+  location    String
+  salary      String?
+  deadline    DateTime
+  link        String?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  applications Application[]
+
+  @@index([company])
+  @@index([deadline])
+}
+
+// Application model - tracks student internship applications
+model Application {
+  id           Int       @id @default(autoincrement())
+  userId       Int
+  internshipId Int
+  status       Status    @default(APPLIED)
+  appliedDate  DateTime  @default(now())
+  rejectedDate DateTime?
+  offerDate    DateTime?
+  interviewDate DateTime?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  user       User        @relation("StudentApplications", fields: [userId], references: [id], onDelete: Cascade)
+  internship Internship  @relation(fields: [internshipId], references: [id], onDelete: Cascade)
+  feedbacks  Feedback[]  @relation("ApplicationFeedback")
+  comments   Comment[]   @relation("ApplicationComments")
+
+  @@unique([userId, internshipId]) // Prevent duplicate applications
+  @@index([userId])
+  @@index([internshipId])
+  @@index([status])
+}
+
+enum Status {
+  APPLIED
+  INTERVIEW
+  REJECTED
+  OFFER
+  ACCEPTED
+  DECLINED
+}
+
+// Feedback model - mentor feedback on applications
+model Feedback {
+  id            Int     @id @default(autoincrement())
+  applicationId Int
+  mentorId      Int
+  content       String
+  rating        Int?    // 1-5 scale
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  application Application @relation("ApplicationFeedback", fields: [applicationId], references: [id], onDelete: Cascade)
+  mentor      User        @relation("MentorFeedback", fields: [mentorId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([mentorId])
+}
+
+// Comment model - notes and discussion on applications
+model Comment {
+  id            Int     @id @default(autoincrement())
+  applicationId Int
+  userId        Int
+  content       String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  application Application @relation("ApplicationComments", fields: [applicationId], references: [id], onDelete: Cascade)
+  author      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([userId])
+}
+
+// Mentorship model - tracks mentor-student relationships
+model Mentorship {
+  id        Int      @id @default(autoincrement())
+  studentId Int
+  mentorId  Int
+  startDate DateTime @default(now())
+  endDate   DateTime?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  student User @relation("StudentMentorship", fields: [studentId], references: [id], onDelete: Cascade)
+  mentor  User @relation("MentorRelation", fields: [mentorId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, mentorId]) // Prevent duplicate mentorships
+  @@index([studentId])
+  @@index([mentorId])
+}
+
+// Dashboard stats - pre-calculated metrics for performance
+model DashboardStats {
+  id                 Int       @id @default(autoincrement())
+  userId             Int       @unique
+  totalApplications  Int       @default(0)
+  appliedCount       Int       @default(0)
+  interviewCount     Int       @default(0)
+  offersCount        Int       @default(0)
+  rejectedCount      Int       @default(0)
+  mentorsCount       Int       @default(0)
+  feedbackCount      Int       @default(0)
+  lastUpdated        DateTime  @default(now()) @updatedAt
+
+  @@index([userId])
+}
