@@ -327,7 +327,6 @@ db_1      | database system is ready to accept connections
 redis_1   | 1:M * Ready to accept connections
 ```
 
-Capture screenshots or copy terminal output similar to the above after running `docker ps` to show each container status for your submission.
 
 ### Reflection & Troubleshooting Notes
 
