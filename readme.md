@@ -601,6 +601,699 @@ npm run db:studio
 # Visit: http://localhost:5555
 ```
 
+---
+
+## 🔗 Prisma ORM Integration
+
+### What is Prisma?
+**Prisma** is an open-source ORM (Object-Relational Mapping) that provides:
+- **Type-Safe Database Access** — Generated TypeScript types prevent runtime errors
+- **Auto-Generated Client** — Query builder with IDE autocomplete
+- **Schema as Source of Truth** — Single definition for database and application models
+- **Migrations** — Version-controlled database schema evolution
+- **Visual Explorer** — Prisma Studio GUI for data management
+
+### Why Prisma for One Route?
+1. **Type Safety** — TypeScript generated types catch errors at compile-time, not runtime
+2. **Developer Experience** — Autocomplete, validation, and error messages reduce bugs
+3. **Query Flexibility** — Supports complex queries without raw SQL
+4. **Migration Support** — Track schema changes in version control
+5. **Performance** — Optimized queries with connection pooling and lazy loading
+
+### Installation & Initialization
+
+```bash
+# Install Prisma packages
+npm install @prisma/client
+npm install -D prisma ts-node
+
+# Initialize Prisma (creates /prisma folder and schema.prisma)
+npx prisma init
+
+# This creates:
+# ├── prisma/
+# │   ├── schema.prisma      ← Database schema definition
+# │   └── migrations/         ← Migration history
+# └── .env                    ← DATABASE_URL configuration
+```
+
+### Prisma Schema Definition
+
+The `prisma/schema.prisma` file defines your complete database structure:
+
+```prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// User model - represents students, mentors, and admins
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String
+  password  String
+  role      Role     @default(STUDENT)
+  bio       String?
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  applications Application[] @relation("StudentApplications")
+  feedbacks    Feedback[]    @relation("MentorFeedback")
+  comments     Comment[]
+  mentoredBy   Mentorship[]  @relation("StudentMentorship")
+  mentors      Mentorship[]  @relation("MentorRelation")
+
+  @@index([role])
+  @@index([email])
+}
+
+// Application model - core entity tracking internship applications
+model Application {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  internshipId Int
+  status       Status   @default(APPLIED)
+  appliedDate  DateTime @default(now())
+  rejectedDate DateTime?
+  offerDate    DateTime?
+  interviewDate DateTime?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  user       User        @relation("StudentApplications", fields: [userId], references: [id], onDelete: Cascade)
+  internship Internship  @relation(fields: [internshipId], references: [id], onDelete: Cascade)
+  feedbacks  Feedback[]  @relation("ApplicationFeedback")
+  comments   Comment[]   @relation("ApplicationComments")
+
+  @@unique([userId, internshipId])
+  @@index([userId])
+  @@index([internshipId])
+  @@index([status])
+}
+
+enum Role {
+  STUDENT
+  MENTOR
+  ADMIN
+}
+
+enum Status {
+  APPLIED
+  INTERVIEW
+  REJECTED
+  OFFER
+  ACCEPTED
+  DECLINED
+}
+
+// ... (Internship, Feedback, Comment, Mentorship, DashboardStats models)
+```
+
+**Key Features:**
+- `@id` — Primary key with auto-increment
+- `@unique` — Enforces unique values (email, combinations)
+- `@default()` — Default values (timestamps, enums)
+- `@relation()` — Defines relationships with cascade rules
+- `@@index()` — Optimizes query performance
+- `onDelete: Cascade` — Maintains data integrity
+
+### Prisma Client Initialization
+
+Create `src/lib/prisma.ts` for a singleton instance:
+
+```typescript
+import { PrismaClient } from '@prisma/client';
+
+const globalForPrisma = global as unknown as { prisma: PrismaClient };
+
+export const prisma =
+  globalForPrisma.prisma ||
+  new PrismaClient({
+    log: ['query', 'info', 'warn', 'error'],
+  });
+
+if (process.env.NODE_ENV !== 'production') {
+  globalForPrisma.prisma = prisma;
+}
+```
+
+**Why a Singleton?**
+- Prevents multiple Prisma Client instances in development (which causes memory leaks)
+- Reuses single connection pool across all requests
+- Improves performance and stability
+
+### Example Queries (Type-Safe)
+
+```typescript
+import { prisma } from '@/lib/prisma';
+import { Role, Status } from '@prisma/client';
+
+// ✅ Fetch user with all applications (type-safe)
+const student = await prisma.user.findUnique({
+  where: { id: 1 },
+  include: {
+    applications: {
+      include: { internship: true, feedbacks: true },
+    },
+  },
+});
+// TypeScript knows: student.applications[0].internship.company exists
+
+// ✅ Filter by enum (type-safe)
+const offers = await prisma.application.findMany({
+  where: { 
+    userId: 1,
+    status: Status.OFFER, // TypeScript validates enum value
+  },
+});
+
+// ✅ Create with relations
+const newUser = await prisma.user.create({
+  data: {
+    email: 'alice@student.com',
+    name: 'Alice Johnson',
+    role: Role.STUDENT, // TypeScript validates role enum
+  },
+});
+
+// ❌ This would cause TypeScript error:
+// const invalidRole = await prisma.user.create({
+//   data: { role: 'INVALID_ROLE' } // TypeScript error: not a valid Role
+// });
+```
+
+### Prisma Commands (Quick Reference)
+
+```bash
+# Generate Prisma Client after schema changes
+npx prisma generate
+
+# Create and apply a migration
+npx prisma migrate dev --name add_users_table
+
+# Apply migrations in production
+npx prisma migrate deploy
+
+# View migration history
+npx prisma migrate status
+
+# Reset database (WARNING: deletes all data)
+npx prisma migrate reset
+
+# Open Prisma Studio (GUI for data management)
+npx prisma studio
+```
+
+### Connection Verification
+
+**Successful Connection Log:**
+```
+✔ Generated Prisma Client (v5.22.0) in 164ms
+✔ Prisma Client is ready
+✔ Connected to PostgreSQL database at localhost:5432/one-route
+```
+
+**Testing Connection:**
+```typescript
+// pages/api/test-connection.ts
+import { prisma } from '@/lib/prisma';
+
+export default async function handler(req, res) {
+  try {
+    const userCount = await prisma.user.count();
+    const appCount = await prisma.application.count();
+    res.status(200).json({
+      status: 'connected',
+      users: userCount,
+      applications: appCount,
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Database connection failed' });
+  }
+}
+```
+
+**Successful Response:**
+```json
+{
+  "status": "connected",
+  "users": 5,
+  "applications": 4
+}
+```
+
+### Prisma Studio Verification
+
+Run `npm run db:studio` and verify data in the GUI:
+
+```
+Prisma Studio running at:
+→ Local:      http://localhost:5555
+→ On Network: http://192.168.x.x:5555
+
+Browse Tables:
+  ✓ User (5 records)
+  ✓ Internship (3 records)
+  ✓ Application (4 records)
+  ✓ Feedback (2 records)
+  ✓ Comment (2 records)
+  ✓ Mentorship (2 records)
+  ✓ DashboardStats (2 records)
+```
+
+### Benefits of Prisma for One Route
+
+#### **Type Safety** 🛡️
+```typescript
+// Before Prisma (raw SQL):
+const result = await db.query('SELECT * FROM users WHERE id = ?', [id]);
+// What is result? Unknown! Could have wrong properties, might crash.
+
+// After Prisma:
+const user = await prisma.user.findUnique({ where: { id } });
+// TypeScript knows: user has id, email, name, role, bio, avatar, createdAt, updatedAt
+// IDE autocomplete works: user.ap[TAB] → user.applications
+```
+
+#### **Query Reliability** ✅
+```typescript
+// Complex query with Prisma (readable, type-safe):
+const mentorFeedback = await prisma.feedback.findMany({
+  where: {
+    applicationId: appId,
+    mentor: { role: 'MENTOR' },
+  },
+  include: {
+    mentor: { select: { name: true, email: true } },
+    application: { include: { internship: true } },
+  },
+});
+
+// Same query in raw SQL (error-prone, hard to maintain):
+const query = `
+  SELECT f.*, u.name, u.email, i.title, i.company
+  FROM feedback f
+  JOIN users u ON f.mentorId = u.id
+  JOIN applications a ON f.applicationId = a.id
+  JOIN internships i ON a.internshipId = i.id
+  WHERE f.applicationId = $1 AND u.role = 'MENTOR'
+`;
+```
+
+#### **Developer Productivity** 🚀
+- Autocomplete suggests available fields and relations
+- Compile-time error checking prevents bugs
+- Migration management tracks schema evolution
+- Prisma Studio provides visual data exploration
+- No need to write database access layer (DAO/Repository pattern)
+
+#### **Scalability** 📈
+- Connection pooling optimizes database resources
+- Lazy loading prevents N+1 query problems
+- Indexes and constraints enforced at schema level
+- Migrations enable painless schema evolution
+- Type generation ensures frontend-backend alignment
+
+---
+
+## 🔄 Database Migrations & Data Management
+
+### Migration Workflow
+
+Prisma uses a **migration-first** approach to safely manage schema evolution:
+
+#### **1. Create a Migration** (When you change `schema.prisma`)
+```bash
+# Make changes to prisma/schema.prisma
+# Then create a migration
+
+npx prisma migrate dev --name add_feedback_rating
+
+# This:
+# 1. Generates migration file: migrations/20260203_add_feedback_rating/migration.sql
+# 2. Applies migration to development database
+# 3. Regenerates Prisma Client
+```
+
+#### **2. Review Migration SQL** (Safety Check)
+```bash
+# View what will be executed
+cat migrations/20260203_add_feedback_rating/migration.sql
+
+# Example output:
+# ALTER TABLE "Feedback" ADD COLUMN "rating" INTEGER;
+# CREATE INDEX "Feedback_rating_idx" ON "Feedback"("rating");
+```
+
+#### **3. Apply to Staging** (Before Production)
+```bash
+# In staging environment:
+export DATABASE_URL="postgresql://user:pass@staging-db:5432/one-route"
+
+npx prisma migrate deploy
+
+# Verify changes in staging before touching production
+npx prisma studio  # Check data visually
+```
+
+#### **4. Deploy to Production** (With Backups)
+```bash
+# CRITICAL: Always backup before production migration!
+# (See backup instructions below)
+
+export DATABASE_URL="postgresql://user:pass@prod-db:5432/one-route"
+
+# Apply all pending migrations
+npx prisma migrate deploy
+
+# Verify success
+npx prisma migrate status
+```
+
+### Safe Rollback Procedures
+
+#### **Scenario 1: Rollback Before Production Deployment**
+```bash
+# If you created a migration but haven't deployed to production yet:
+
+# Option A: Undo latest migration (development only)
+npx prisma migrate dev --name undo_feature_name
+# Create a new migration that reverts changes
+
+# Option B: Reset development database completely
+npx prisma migrate reset
+# WARNING: Deletes all data in development
+```
+
+#### **Scenario 2: Rollback After Production Deployment**
+```bash
+# If a migration caused production issues:
+
+# Step 1: Create a reverse migration
+npx prisma migrate dev --name revert_problematic_change
+
+# Edit the new migration file to reverse the changes:
+# migrations/20260203_revert_problematic_change/migration.sql
+
+# Step 2: Test the reverse migration in staging
+export DATABASE_URL="postgresql://user:pass@staging-db:5432/one-route"
+npx prisma migrate deploy
+
+# Step 3: If staging passes, apply to production
+export DATABASE_URL="postgresql://user:pass@prod-db:5432/one-route"
+npx prisma migrate deploy
+
+# Step 4: Monitor for issues
+npx prisma studio
+```
+
+#### **Scenario 3: Emergency Rollback (Database Restore)**
+```bash
+# If migration caused data corruption:
+
+# 1. Restore from backup
+# (See backup procedures below)
+
+# 2. After restore, check migration history
+npx prisma migrate status
+
+# 3. If needed, manually resolve migration state
+npx prisma migrate resolve --rolled-back 20260203_problematic_migration
+
+# 4. Create corrective migration
+npx prisma migrate dev --name fix_data_corruption
+```
+
+### Production Data Protection Strategy
+
+#### **🔐 Pre-Migration Backups**
+```bash
+# Automated backup before any production migration
+
+# PostgreSQL native backup (recommended):
+pg_dump -h prod-db.example.com \
+  -U postgres \
+  -d one-route \
+  -F c \
+  -f backup-$(date +%Y%m%d-%H%M%S).sql
+
+# Verify backup integrity:
+pg_restore -l backup-20260203-143022.sql | head -20
+
+# Store backups in secure location:
+# - AWS S3 with versioning enabled
+# - Google Cloud Storage with lifecycle policies
+# - Azure Blob Storage with soft delete
+# - Multiple geographic replicas for disaster recovery
+```
+
+#### **🧪 Staging Testing Before Production**
+```bash
+# Workflow:
+
+# 1. Deploy new schema to staging with production data snapshot
+export DATABASE_URL="postgresql://user:pass@staging-db:5432/one-route"
+
+# 2. Run migration
+npx prisma migrate deploy
+
+# 3. Run comprehensive tests
+npm run test:integration
+
+# 4. Load test with expected production traffic
+npx artillery run load-test.yml
+
+# 5. Validate data integrity
+npm run validate:data
+
+# 6. Only after all checks pass, deploy to production
+export DATABASE_URL="postgresql://user:pass@prod-db:5432/one-route"
+npx prisma migrate deploy
+```
+
+#### **📊 Health Checks & Monitoring**
+```typescript
+// src/lib/health-check.ts
+import { prisma } from '@/lib/prisma';
+
+export async function databaseHealthCheck() {
+  try {
+    // Test basic connectivity
+    const userCount = await prisma.user.count();
+    
+    // Verify key constraints
+    const uniqueEmails = await prisma.user.findMany({
+      select: { email: true }
+    });
+    
+    // Check for orphaned records
+    const orphanedApps = await prisma.application.findMany({
+      where: { user: null }
+    });
+    
+    return {
+      status: orphanedApps.length === 0 ? 'healthy' : 'degraded',
+      checks: {
+        connectivity: ✓,
+        uniqueConstraints: uniqueEmails.length > 0,
+        orphanedRecords: orphanedApps.length,
+      }
+    };
+  } catch (error) {
+    return { status: 'unhealthy', error: error.message };
+  }
+}
+
+// Run on every deployment:
+// const health = await databaseHealthCheck();
+// if (health.status !== 'healthy') throw new Error('Database health check failed');
+```
+
+### Seed Script & Sample Output
+
+#### **Seed Script Location**
+```
+one-route/prisma/seed.ts
+```
+
+**Contents:**
+```typescript
+// Creates realistic test data with all entity relationships
+// - 5 users (2 students, 2 mentors, 1 admin)
+// - 3 internship opportunities
+// - 4 applications with different statuses
+// - 2 mentor feedback entries
+// - 2 discussion comments
+// - 2 mentorship relationships
+// - Pre-calculated dashboard stats
+```
+
+#### **Successful Seed Output** ✅
+```bash
+$ npm run db:seed
+
+> one-route@0.1.0 db:seed
+> prisma db seed
+
+Environment variables loaded from .env
+Running seed command `ts-node prisma/seed.ts` ...
+
+🌱 Seeding database...
+
+✅ Created 5 users (2 students, 2 mentors, 1 admin)
+✅ Created 3 internship opportunities
+✅ Created 4 applications with various statuses
+✅ Created 2 feedback entries
+✅ Created 2 comments
+✅ Created 2 mentorship relationships
+✅ Created dashboard stats for students
+
+🎉 Database seeded successfully!
+
+Summary:
+📊 Users: 5 (2 students, 2 mentors, 1 admin)
+  - Alice Johnson (STUDENT) - alice@student.com
+  - Bob Smith (STUDENT) - bob@student.com
+  - Sarah Chen (MENTOR) - mentor.sarah@company.com
+  - James Brown (MENTOR) - mentor.james@company.com
+  - Admin User (ADMIN) - admin@oneroute.com
+
+💼 Internships: 3
+  - Backend Engineer Intern @ Tech Startup Inc
+  - Frontend Engineer Intern @ Design Studio Co
+  - Full-Stack Developer Intern @ E-commerce Giants Ltd
+
+📝 Applications: 4
+  - Alice → Backend (INTERVIEW)
+  - Alice → Frontend (APPLIED)
+  - Bob → Backend (REJECTED)
+  - Bob → Full-Stack (OFFER)
+
+💬 Feedback entries: 2
+  - Sarah reviewed Alice's Backend application (rating: 4)
+  - James reviewed Bob's Full-Stack application (rating: 5)
+
+📋 Comments: 2
+  - Alice: "Feeling confident after the interview"
+  - Bob: "Need to decide on the offer by next Friday"
+
+👥 Mentorships: 2
+  - Alice mentored by Sarah (System design focus)
+  - Bob mentored by James (Career growth focus)
+```
+
+### Migration History & Status
+
+#### **View Migration Status**
+```bash
+$ npx prisma migrate status
+
+Environment variables loaded from .env
+Prisma schema loaded from prisma\schema.prisma
+
+Following migrations have been applied:
+
+migrations/
+  └─ 20260203095105_init
+       Status: Applied
+       Timestamp: 2026-02-03 09:51:05
+
+There are no pending migrations.
+```
+
+#### **Migration File Structure**
+```
+one-route/prisma/migrations/
+└── 20260203095105_init/
+    ├── migration.sql              # SQL to execute
+    └── migration_lock.toml        # Lock file (auto-managed)
+
+migrations/20260203095105_init/migration.sql contents:
+-- Create "User" table
+CREATE TABLE "User" (
+  "id" SERIAL NOT NULL PRIMARY KEY,
+  "email" TEXT NOT NULL UNIQUE,
+  "name" TEXT NOT NULL,
+  "role" TEXT NOT NULL DEFAULT 'STUDENT',
+  ...
+);
+-- Create indexes
+CREATE INDEX "User_role_idx" ON "User"("role");
+...
+```
+
+### Data Protection Checklist
+
+- ✅ **Pre-Migration Backup** — Full database dump before any schema change
+- ✅ **Staging Validation** — Test migrations in staging with production data replica
+- ✅ **Automated Tests** — Integration tests verify data integrity after migration
+- ✅ **Health Checks** — Post-deployment verification of constraints and relationships
+- ✅ **Rollback Plan** — Documented procedures for reverting migrations
+- ✅ **Change Log** — All migrations tracked in Git with descriptive names
+- ✅ **Team Communication** — Notify team before production migrations
+- ✅ **Backup Retention** — Keep backups for at least 30 days
+- ✅ **Disaster Recovery** — Geo-replicated backups for quick recovery
+- ✅ **Audit Trail** — Track who, what, when for all migrations
+
+### Quick Reference Commands
+
+```bash
+# Development
+npx prisma migrate dev --name feature_name       # Create & apply migration
+npx prisma migrate reset                         # Reset dev database (careful!)
+npm run db:seed                                  # Populate sample data
+npm run db:studio                                # Visual data explorer
+
+# Production
+npx prisma migrate deploy                        # Apply migrations (read-only check)
+npx prisma migrate status                        # View migration history
+npx prisma migrate resolve --rolled-back MigrationName  # Manual state fix
+
+# Debugging
+npx prisma validate                              # Check schema syntax
+npx prisma format                                # Auto-format schema
+DEBUG=* npm run dev                              # Enable query logging
+```
+
+---
+
+### Migration Logs (Success Evidence)
+
+```
+✔ Generated Prisma Client (v5.22.0) in 164ms
+
+Applying migration `20260203095105_init`
+
+The following migration(s) have been created and applied from new schema changes:
+
+migrations/
+  └─ 20260203095105_init/
+    └─ migration.sql
+
+Your database is now in sync with your schema. ✓
+
+🎉 Database seeded successfully!
+
+Summary:
+📊 Users: 5 (2 students, 2 mentors, 1 admin)
+💼 Internships: 3
+📝 Applications: 4 (APPLIED, INTERVIEW, OFFER, REJECTED)
+💬 Feedback entries: 2
+📋 Comments: 2
+👥 Mentorships: 2
+```
+
+---
+
 ## 📋 Entity-Relationship Diagram (ER)
 
 ```
