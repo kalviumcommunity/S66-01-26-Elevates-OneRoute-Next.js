@@ -257,8 +257,6 @@ When a violation is detected and auto-fixed:
 
 This project uses environment variables to manage sensitive configuration such as database credentials and authentication secrets.
 
-Here’s a **short, clean, and professional** README section you can paste directly:
-
 ---
 
 ## 🔐 Environment Variables
@@ -281,8 +279,6 @@ CLIENT_URL=http://localhost:3000
 ```bash
 copy .env.example .env
 ```
-
-Update the values as per your local or production environment and restart the server.
 
 ### Notes
 
