@@ -110,6 +110,67 @@ Include the following in project docs:
 - Testing proof (curl transcripts, Postman screenshots in `docs/api-tests/`).
 - Reflection on naming consistency: aligning on lowercase plural nouns makes routes guessable, reduces client bugs, and simplifies onboarding because developers can infer endpoints from resource names alone.
 
+## 8. Unified Response Envelope
+
+Standardizing response shapes keeps frontend code simple and observability tooling reliable. Every route in this project returns the same envelope:
+
+```json
+{
+	"success": true,
+	"message": "Human-friendly summary",
+	"data": {},
+	"timestamp": "2025-10-30T10:00:00Z"
+}
+```
+
+Errors share the same structure but add a typed error block:
+
+```json
+{
+	"success": false,
+	"message": "Missing required field: name",
+	"error": {
+		"code": "E001",
+		"type": "VALIDATION_ERROR"
+	},
+	"timestamp": "2025-10-30T10:00:00Z"
+}
+```
+
+Implementations live in [src/lib/responseHandler.ts](src/lib/responseHandler.ts) and are shared by every API route.
+
+## 9. Global Handler Utility
+
+Use `sendSuccess` and `sendError` for all HTTP handlers to guarantee the envelope above:
+
+```ts
+// src/lib/responseHandler.ts
+export const sendSuccess = <T>(data: T, message = 'Success', status = 200) => { /* ... */ };
+export const sendError = (message = 'Something went wrong', errorType = 'INTERNAL_ERROR', status = 500, details?: unknown) => { /* ... */ };
+```
+
+Example usage can be seen in [src/app/api/users/route.ts](src/app/api/users/route.ts) and [src/app/api/tasks/route.ts](src/app/api/tasks/route.ts), ensuring both read-heavy and write-heavy routes behave consistently for consumers.
+
+## 10. Error Codes
+
+The handler pulls canonical codes from [src/lib/errorCodes.ts](src/lib/errorCodes.ts):
+
+| Key | Code | When to use |
+|-----|------|-------------|
+| `VALIDATION_ERROR` | `E001` | Missing/invalid input |
+| `NOT_FOUND` | `E002` | Resource lookup failed |
+| `DATABASE_FAILURE` | `E003` | Persistence layer issues |
+| `INTERNAL_ERROR` | `E500` | Unknown/unexpected state |
+
+Because both the symbolic key and numeric code are emitted, logs and dashboards can filter by either dimension without extra parsing.
+
+## 11. Developer Experience & Observability
+
+- Predictable JSON unlocks simple frontend guards: one place to read `success`, branching only when needed.
+- Error telemetry (Sentry, Datadog, Postman monitors) can group by `error.type` or `error.code`, surfacing noisy endpoints fast.
+- Shared timestamps make correlation with server logs immediate and expose clock drift.
+- Onboarding improves because each new API file imports the same helpers instead of inventing its own patterns.
+
 ## Getting Started
 
 Run the development server from `one-route/`:
