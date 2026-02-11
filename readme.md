@@ -236,6 +236,26 @@ When a violation is detected and auto-fixed:
 
 ---
 
+## 🧠 Routing Reflection
+
+### Dynamic Routing & Scalability
+
+Dynamic routes allow the application to handle unlimited users using a single route definition. This approach significantly reduces code duplication, improves maintainability, and enables the system to scale efficiently as the number of users grows.
+
+### SEO & URL Structure
+
+Clean, parameterized URLs improve search engine indexing and content discoverability while remaining human-readable. Structured routes such as `/users/[id]` help search engines understand page hierarchy and intent.
+
+### Breadcrumbs & User Experience
+
+Breadcrumb navigation enhances usability by clearly indicating the user’s current location within the application hierarchy. This improves navigation clarity, reduces confusion, and encourages smoother movement between related pages.
+
+### Error Handling
+
+Graceful handling of invalid routes through a custom 404 page prevents user frustration. Instead of reaching a dead end, users are guided back to meaningful sections of the application, maintaining a polished and professional experience.
+
+---
+
 ## 🗄️ Database Schema & Design
 
 ### Core Entities
