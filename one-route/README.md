@@ -1142,6 +1142,267 @@ if (editorRoutes.some(r => pathname.startsWith(r)) && decoded.role !== "EDITOR")
 4. **Consistency**: Middleware ensures all protected routes follow the same validation
 5. **Clear Permissions**: Explicit role definitions prevent confusion about who can do what
 
+## 15. Centralized Error Handling & Logging
+
+This project uses structured error handling and logging to ensure consistent error responses, easier debugging, and better security by redacting sensitive information in production.
+
+### Architecture
+
+```
+Error occurs in route handler
+      ↓
+throw new AppError() or catch error
+      ↓
+handleError(error, context)
+      ↓
+logger.error(message, meta)  ←  Log to console/CloudWatch
+      ↓
+Check NODE_ENV
+      ├─ development → Include full error details + stack trace
+      └─ production → Generic message + [REDACTED] stack
+      ↓
+Return NextResponse with appropriate HTTP status
+```
+
+### Logger Utility
+
+The logger provides structured logging with timestamps and metadata:
+
+```ts
+// src/lib/logger.ts
+export const logger = {
+  info: (message: string, meta?: any) => {
+    console.log(JSON.stringify({ level: "info", message, meta, timestamp: ... }));
+  },
+  warn: (message: string, meta?: any) => { ... },
+  error: (message: string, meta?: any) => { ... },
+  debug: (message: string, meta?: any) => { ... },
+};
+```
+
+### Error Handler
+
+The centralized error handler manages all exceptions and provides environment-specific responses:
+
+```ts
+// src/lib/errorHandler.ts
+export class AppError extends Error {
+  constructor(
+    public message: string,
+    public code: string = "INTERNAL_ERROR",
+    public statusCode: number = 500,
+    public details?: any
+  ) { ... }
+}
+
+export function handleError(error: any, context: string) {
+  // Logs error with full details
+  logger.error(`Error in ${context}`, { message, stack, ... });
+  
+  // Returns different response based on NODE_ENV
+  if (isProd) {
+    // Generic message, redacted stack
+    return { message: "Something went wrong. Please try again later." };
+  } else {
+    // Full error details for debugging
+    return { message: error.message, stack: error.stack, ... };
+  }
+}
+```
+
+### Usage in Routes
+
+All API routes use consistent error handling:
+
+```ts
+import { handleError, AppError } from "@/lib/errorHandler";
+import { logger } from "@/lib/logger";
+
+export async function GET(req: Request) {
+  try {
+    // Route logic
+    logger.info("Success message", { metadata });
+    return sendSuccess(data);
+  } catch (error) {
+    return handleError(error, "GET /api/endpoint");
+  }
+}
+```
+
+### Error Responses Comparison
+
+#### Development Mode Response
+
+Request body or parameter validation fails:
+
+```bash
+curl -X POST http://localhost:3000/api/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{"name":"A","email":"bad","password":"123"}'
+```
+
+Response (400 Bad Request, includes full details):
+
+```json
+{
+  "success": false,
+  "message": "Validation error",
+  "error": {
+    "code": "E001",
+    "type": "VALIDATION_ERROR"
+  },
+  "details": [
+    { "field": "name", "message": "Name must be at least 2 characters long" },
+    { "field": "email", "message": "Invalid email address" },
+    { "field": "password", "message": "Password must be at least 8 characters long" }
+  ],
+  "stack": "Error: Validation error\n    at Object.parse (zod/lib/...)"
+}
+```
+
+Console Log (Development):
+
+```json
+{
+  "level": "error",
+  "message": "Error in POST /api/auth/signup",
+  "meta": {
+    "context": "POST /api/auth/signup",
+    "errorCode": "VALIDATION_ERROR",
+    "message": "Validation error",
+    "stack": "Error: Validation error\n    at Object.parse (zod/lib/...)",
+    "details": [ { "field": "name", "message": "..." } ]
+  },
+  "timestamp": "2026-02-11T13:00:00.000Z"
+}
+```
+
+#### Production Mode Response
+
+Same request in production:
+
+Response (400 Bad Request, generic message):
+
+```json
+{
+  "success": false,
+  "message": "Something went wrong. Please try again later.",
+  "error": {
+    "code": "E001",
+    "type": "VALIDATION_ERROR"
+  }
+}
+```
+
+Console Log (Production):
+
+```json
+{
+  "level": "error",
+  "message": "Error in POST /api/auth/signup",
+  "meta": {
+    "context": "POST /api/auth/signup",
+    "errorCode": "VALIDATION_ERROR",
+    "message": "Validation error",
+    "stack": "[REDACTED]"
+  },
+  "timestamp": "2026-02-11T13:00:00.000Z"
+}
+```
+
+### Error Codes Reference
+
+| Code | Type | HTTP Status | When Used |
+|------|------|-------------|-----------|
+| E001 | VALIDATION_ERROR | 400 | Invalid input, Zod validation fails |
+| E002 | NOT_FOUND | 404 | Resource doesn't exist |
+| E003 | DATABASE_FAILURE | 500 | Database connection/query error |
+| E401 | UNAUTHORIZED | 401 | Missing or invalid token |
+| E403 | FORBIDDEN | 403 | Insufficient permissions |
+| E409 | DUPLICATE_USER | 409 | Email already registered |
+| E500 | INTERNAL_ERROR | 500 | Unexpected server error |
+
+### Key Patterns
+
+**Throwing AppError for business logic violations:**
+
+```ts
+if (existingUser) {
+  throw new AppError(
+    "User with this email already exists",
+    "DUPLICATE_USER",
+    409
+  );
+}
+```
+
+**Logging important business events:**
+
+```ts
+logger.info("User registered successfully", {
+  userId: newUser.id,
+  email: newUser.email,
+});
+```
+
+**Logging failed attempts:**
+
+```ts
+if (!isPasswordValid) {
+  logger.warn("Failed login attempt", { email });
+  throw new AppError("Invalid credentials", "INVALID_PASSWORD", 401);
+}
+```
+
+**Handling specific errors:**
+
+```ts
+try {
+  await prisma.user.update({ ... });
+} catch (error: any) {
+  if (error.code === "P2025") {
+    return handleError(
+      new AppError("User not found", "NOT_FOUND", 404),
+      "POST /api/users"
+    );
+  }
+  return handleError(error, "POST /api/users");
+}
+```
+
+### Why This Matters
+
+**For Developers:**
+- Consistent error handling reduces bugs and unexpected behavior
+- Structured logs with context make debugging much faster
+- Stack traces available in development, but safe in production
+
+**For Organizations:**
+- Prevents information leakage (stack traces, database details)
+- Audit trail of important events for compliance
+- Easier monitoring with consistent error codes
+
+**For Users:**
+- Clear, helpful error messages in development
+- Safe, generic messages in production (prevents exploitation)
+- Professional, trust-building experience
+
+### File Structure
+
+```
+src/lib/
+├── logger.ts              # Structured logging
+├── errorHandler.ts        # Centralized error handling
+├── responseHandler.ts     # Unified response formatting
+└── ... other utilities
+
+src/app/api/
+├── auth/                  # Uses centralized error handling
+├── admin/                 # Uses centralized error handling  
+├── users/                 # Uses centralized error handling
+└── tasks/                 # Uses centralized error handling
+```
+
 ## Getting Started
 
 Run the development server from `one-route/`:

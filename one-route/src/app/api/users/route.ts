@@ -1,7 +1,8 @@
-import { sendError, sendSuccess } from '@/lib/responseHandler';
+import { sendSuccess } from '@/lib/responseHandler';
 import { userSchema, UserInput } from '@/lib/schemas/userSchema';
 import { verifyToken } from '@/lib/auth';
-import { ZodError } from 'zod';
+import { handleError, AppError } from '@/lib/errorHandler';
+import { logger } from '@/lib/logger';
 
 type User = UserInput & {
   id: number;
@@ -16,12 +17,11 @@ const USERS: User[] = [
 
 export async function GET(req: Request) {
   try {
-    // Verify JWT token
     const authHeader = req.headers.get('authorization');
     const decoded = verifyToken(authHeader);
 
     if (!decoded) {
-      return sendError('Missing or invalid token', 'UNAUTHORIZED', 401);
+      throw new AppError('Missing or invalid token', 'UNAUTHORIZED', 401);
     }
 
     const { searchParams } = new URL(req.url);
@@ -29,6 +29,8 @@ export async function GET(req: Request) {
     const limit = Number(searchParams.get('limit')) || 10;
     const start = (page - 1) * limit;
     const data = USERS.slice(start, start + limit);
+
+    logger.info('Users fetched', { userEmail: decoded.email, page, limit });
 
     return sendSuccess(
       {
@@ -41,7 +43,7 @@ export async function GET(req: Request) {
       'Users fetched successfully'
     );
   } catch (error) {
-    return sendError('Failed to fetch users', 'INTERNAL_ERROR', 500, error);
+    return handleError(error, 'GET /api/users');
   }
 }
 
@@ -55,16 +57,10 @@ export async function POST(req: Request) {
       ...validatedData,
     };
 
+    logger.info('User created', { userId: newUser.id, email: newUser.email });
+
     return sendSuccess(newUser, 'User created successfully', 201);
   } catch (error) {
-    if (error instanceof ZodError) {
-      return sendError(
-        'Validation Error',
-        'VALIDATION_ERROR',
-        400,
-        error.issues.map((e) => ({ field: e.path[0], message: e.message }))
-      );
-    }
-    return sendError('Failed to create user', 'INTERNAL_ERROR', 500, error);
+    return handleError(error, 'POST /api/users');
   }
 }

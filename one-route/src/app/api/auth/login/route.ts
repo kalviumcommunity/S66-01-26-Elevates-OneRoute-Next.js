@@ -1,9 +1,10 @@
-import { sendError, sendSuccess } from "@/lib/responseHandler";
+import { sendSuccess } from "@/lib/responseHandler";
 import { loginSchema } from "@/lib/schemas/authSchema";
 import { prisma } from "@/lib/prisma";
+import { handleError, AppError } from "@/lib/errorHandler";
+import { logger } from "@/lib/logger";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import { ZodError } from "zod";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-super-secret-key-change-in-production";
 
@@ -12,31 +13,39 @@ export async function POST(req: Request) {
     const body = await req.json();
     const validatedData = loginSchema.parse(body);
 
-    // Find user by email
     const user = await prisma.user.findUnique({
       where: { email: validatedData.email },
     });
 
     if (!user) {
-      return sendError("User not found", "USER_NOT_FOUND", 404);
+      throw new AppError(
+        "User not found",
+        "USER_NOT_FOUND",
+        404
+      );
     }
 
-    // Verify password
     const isPasswordValid = await bcrypt.compare(
       validatedData.password,
       user.password
     );
 
     if (!isPasswordValid) {
-      return sendError("Invalid credentials", "INVALID_PASSWORD", 401);
+      logger.warn("Failed login attempt", { email: validatedData.email });
+      throw new AppError(
+        "Invalid credentials",
+        "INVALID_PASSWORD",
+        401
+      );
     }
 
-    // Generate JWT token (expires in 1 hour)
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role },
       JWT_SECRET,
       { expiresIn: "1h" }
     );
+
+    logger.info("User logged in", { userId: user.id, email: user.email });
 
     return sendSuccess(
       {
@@ -52,14 +61,6 @@ export async function POST(req: Request) {
       200
     );
   } catch (error) {
-    if (error instanceof ZodError) {
-      return sendError(
-        "Validation Error",
-        "VALIDATION_ERROR",
-        400,
-        error.issues.map((e) => ({ field: e.path[0], message: e.message }))
-      );
-    }
-    return sendError("Login failed", "INTERNAL_ERROR", 500, error);
+    return handleError(error, "POST /api/auth/login");
   }
 }

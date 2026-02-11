@@ -1,6 +1,7 @@
-import { sendError, sendSuccess } from '@/lib/responseHandler';
-import { taskSchema, TaskInput } from '@/lib/schemas/taskSchema';
-import { ZodError } from 'zod';
+import { sendSuccess } from '@/lib/responseHandler';
+import { taskSchema } from '@/lib/schemas/taskSchema';
+import { handleError } from '@/lib/errorHandler';
+import { logger } from '@/lib/logger';
 
 export async function POST(req: Request) {
   try {
@@ -12,16 +13,10 @@ export async function POST(req: Request) {
       ...validatedData,
     };
 
+    logger.info('Task created', { taskId: task.id, title: task.title });
+
     return sendSuccess(task, 'Task created successfully', 201);
   } catch (error) {
-    if (error instanceof ZodError) {
-      return sendError(
-        'Validation Error',
-        'VALIDATION_ERROR',
-        400,
-        error.issues.map((e) => ({ field: e.path[0], message: e.message }))
-      );
-    }
-    return sendError('Task creation failed', 'INTERNAL_ERROR', 500, error);
+    return handleError(error, 'POST /api/tasks');
   }
 }
