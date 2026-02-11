@@ -3,6 +3,7 @@ import { userSchema, UserInput } from '@/lib/schemas/userSchema';
 import { verifyToken } from '@/lib/auth';
 import { handleError, AppError } from '@/lib/errorHandler';
 import { logger } from '@/lib/logger';
+import redis from '@/lib/redis';
 
 type User = UserInput & {
   id: number;
@@ -27,21 +28,32 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const page = Number(searchParams.get('page')) || 1;
     const limit = Number(searchParams.get('limit')) || 10;
+    const cacheKey = `users:list:page:${page}:limit:${limit}`;
+
+    const cachedData = await redis.get(cacheKey);
+    if (cachedData) {
+      logger.info('Cache hit for users list', { userEmail: decoded.email, page, limit, cacheKey });
+      return sendSuccess(
+        JSON.parse(cachedData),
+        'Users fetched from cache'
+      );
+    }
+
     const start = (page - 1) * limit;
     const data = USERS.slice(start, start + limit);
+    const response = {
+      page,
+      limit,
+      total: USERS.length,
+      data,
+      requestedBy: decoded.email,
+    };
 
-    logger.info('Users fetched', { userEmail: decoded.email, page, limit });
+    await redis.set(cacheKey, JSON.stringify(response), 'EX', 300);
 
-    return sendSuccess(
-      {
-        page,
-        limit,
-        total: USERS.length,
-        data,
-        requestedBy: decoded.email,
-      },
-      'Users fetched successfully'
-    );
+    logger.info('Cache miss for users list - fetched from database', { userEmail: decoded.email, page, limit, cacheKey });
+
+    return sendSuccess(response, 'Users fetched successfully');
   } catch (error) {
     return handleError(error, 'GET /api/users');
   }
@@ -57,7 +69,11 @@ export async function POST(req: Request) {
       ...validatedData,
     };
 
-    logger.info('User created', { userId: newUser.id, email: newUser.email });
+    USERS.push(newUser);
+
+    await redis.del('users:list:*');
+
+    logger.info('User created and cache invalidated', { userId: newUser.id, email: newUser.email });
 
     return sendSuccess(newUser, 'User created successfully', 201);
   } catch (error) {
