@@ -10,10 +10,6 @@ export interface DecodedToken {
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-super-secret-key-change-in-production";
 
-/**
- * Extract and verify JWT token from Authorization header
- * Header format: "Bearer <token>"
- */
 export function verifyToken(authHeader?: string | null): DecodedToken | null {
   try {
     if (!authHeader) {
@@ -32,9 +28,6 @@ export function verifyToken(authHeader?: string | null): DecodedToken | null {
   }
 }
 
-/**
- * Extract token from Authorization header
- */
 export function getTokenFromHeader(authHeader?: string | null): string | null {
   try {
     if (!authHeader) {
