@@ -1,15 +1,16 @@
 import { sendError, sendSuccess } from '@/lib/responseHandler';
+import { userSchema, UserInput } from '@/lib/schemas/userSchema';
+import { ZodError } from 'zod';
 
-type User = {
+type User = UserInput & {
   id: number;
-  name: string;
 };
 
 const USERS: User[] = [
-  { id: 1, name: 'Alice' },
-  { id: 2, name: 'Bob' },
-  { id: 3, name: 'Charlie' },
-  { id: 4, name: 'Diana' },
+  { id: 1, name: 'Alice', email: 'alice@example.com', age: 25 },
+  { id: 2, name: 'Bob', email: 'bob@example.com', age: 30 },
+  { id: 3, name: 'Charlie', email: 'charlie@example.com', age: 28 },
+  { id: 4, name: 'Diana', email: 'diana@example.com', age: 22 },
 ];
 
 export async function GET(req: Request) {
@@ -37,18 +38,23 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-
-    if (!body?.name) {
-      return sendError('Missing required field: name', 'VALIDATION_ERROR', 400);
-    }
+    const validatedData = userSchema.parse(body);
 
     const newUser: User = {
       id: Date.now(),
-      name: body.name,
+      ...validatedData,
     };
 
     return sendSuccess(newUser, 'User created successfully', 201);
   } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(
+        'Validation Error',
+        'VALIDATION_ERROR',
+        400,
+        error.issues.map((e) => ({ field: e.path[0], message: e.message }))
+      );
+    }
     return sendError('Failed to create user', 'INTERNAL_ERROR', 500, error);
   }
 }
