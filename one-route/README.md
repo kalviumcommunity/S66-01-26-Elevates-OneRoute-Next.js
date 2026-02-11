@@ -777,11 +777,370 @@ src/
 ├── app/api/auth/
 │   ├── signup/route.ts           # User registration endpoint
 │   └── login/route.ts            # User authentication endpoint
+├── app/api/admin/
+│   └── route.ts                  # Admin-only dashboard & role management
 ├── lib/
 │   ├── schemas/authSchema.ts     # Zod validation schemas
-│   └── auth.ts                   # JWT token utilities
-└── app/api/users/route.ts        # Protected route example
+│   ├── auth.ts                   # JWT token utilities
+│   └── responseHandler.ts        # Unified response formatting
+├── app/api/users/route.ts        # Protected route (AUTH required)
+├── middleware.ts                 # Authorization & role enforcement
+└── prisma/schema.prisma          # Database schema with Role enum
 ```
+
+## 14. Role-Based Access Control (RBAC)
+
+This project implements secure role-based authorization using JWT tokens and Next.js middleware. Three user roles control access to different endpoints:
+
+### User Roles
+
+| Role | Description | Default Access |
+|------|-------------|-----------------|
+| **STUDENT** | Regular users, view own data | `/api/users` (read-only) |
+| **MENTOR** | Mentors, give feedback | `/api/users` (read-only) |
+| **ADMIN** | System administrators, full access | `/api/admin` (all) |
+
+All roles are defined in the Prisma schema:
+
+```ts
+// prisma/schema.prisma
+enum Role {
+  STUDENT
+  MENTOR
+  ADMIN
+}
+
+model User {
+  id    Int     @id @default(autoincrement())
+  email String  @unique
+  name  String
+  role  Role    @default(STUDENT)
+  // ... other fields
+}
+```
+
+### Authorization Flow Diagram
+
+```
+HTTP Request
+      ↓
+Middleware (src/middleware.ts)
+      ↓
+Check if route is protected?
+      ├─ No → Next.next() → Handler
+      ├─ Yes → Extract JWT token
+              ↓
+        Token exists?
+              ├─ No → 401 Unauthorized
+              ├─ Yes → Verify JWT signature
+                      ↓
+                Valid token?
+                      ├─ No → 403 Forbidden (expired/invalid)
+                      ├─ Yes → Extract user role from token
+                              ↓
+                        Check route permissions
+                              ├─ /api/admin → role === "ADMIN"? 
+                              │   ├─ Yes → Attach headers → Next.next()
+                              │   └─ No → 403 Forbidden
+                              └─ /api/users → any authenticated user
+                                  └─ Attach headers → Next.next()
+```
+
+### Middleware Implementation
+
+The middleware intercepts all requests and enforces authorization:
+
+```ts
+// src/middleware.ts
+export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  // Protect these routes
+  const protectedRoutes = ["/api/users", "/api/admin"];
+  const adminRoutes = ["/api/admin"];
+
+  const isProtected = protectedRoutes.some((route) => pathname.startsWith(route));
+
+  if (isProtected) {
+    // 1. Extract token from header
+    const token = req.headers.get("authorization")?.split(" ")[1];
+    
+    if (!token) return 401 Unauthorized;
+
+    // 2. Verify JWT signature
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    // 3. Check role for admin routes
+    if (adminRoutes.some(r => pathname.startsWith(r)) && decoded.role !== "ADMIN") {
+      return 403 Forbidden;
+    }
+
+    // 4. Attach user info to headers for downstream handlers
+    const headers = new Headers(req.headers);
+    headers.set("x-user-id", decoded.id);
+    headers.set("x-user-email", decoded.email);
+    headers.set("x-user-role", decoded.role);
+
+    return NextResponse.next({ request: { headers } });
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ["/api/users/:path*", "/api/admin/:path*"],
+};
+```
+
+**Key Features:**
+- ✅ JWT signature verification prevents token tampering
+- ✅ Role-based route access (admin-only endpoints)
+- ✅ User context passed to handlers via headers
+- ✅ Performance optimized with matcher (only intercepts specified paths)
+
+### Protected Endpoints
+
+#### 1. User Data Endpoint (Authenticated Users)
+
+**GET** `/api/users` - List all users (requires authentication)
+
+**Request:**
+```bash
+curl -X GET http://localhost:3000/api/users \
+  -H "Authorization: Bearer <JWT_TOKEN>"
+```
+
+**Success Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Users fetched successfully",
+  "data": {
+    "page": 1,
+    "limit": 10,
+    "total": 4,
+    "data": [
+      { "id": 1, "name": "Alice", "email": "alice@example.com", "age": 25 },
+      { "id": 2, "name": "Bob", "email": "bob@example.com", "age": 30 }
+    ],
+    "requestedBy": "student@example.com"
+  },
+  "timestamp": "2026-02-11T12:00:00Z"
+}
+```
+
+**Error Response (Missing Token - 401):**
+```json
+{
+  "success": false,
+  "message": "Missing or invalid token",
+  "error": {
+    "code": "E401",
+    "type": "UNAUTHORIZED"
+  },
+  "timestamp": "2026-02-11T12:00:00Z"
+}
+```
+
+#### 2. Admin Dashboard Endpoint (Admin Only)
+
+**GET** `/api/admin` - Admin statistics and system data (admin role required)
+
+**Request:**
+```bash
+curl -X GET http://localhost:3000/api/admin \
+  -H "Authorization: Bearer <ADMIN_JWT_TOKEN>"
+```
+
+**Success Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Admin dashboard accessed successfully",
+  "data": {
+    "totalUsers": 42,
+    "usersByRole": [
+      { "role": "STUDENT", "count": 35 },
+      { "role": "MENTOR", "count": 6 },
+      { "role": "ADMIN", "count": 1 }
+    ],
+    "lastAdminAction": {
+      "admin": "admin@example.com",
+      "timestamp": "2026-02-11T12:00:00Z",
+      "action": "Viewed admin dashboard"
+    }
+  },
+  "timestamp": "2026-02-11T12:00:00Z"
+}
+```
+
+**Error Response (Non-Admin Access - 403):**
+```json
+{
+  "success": false,
+  "message": "Access denied: Admin privileges required",
+  "error": {
+    "code": "E403",
+    "type": "FORBIDDEN"
+  },
+  "timestamp": "2026-02-11T12:00:00Z"
+}
+```
+
+#### 3. Role Update Endpoint (Admin Only)
+
+**POST** `/api/admin` - Update a user's role (admin role required)
+
+**Request:**
+```bash
+curl -X POST http://localhost:3000/api/admin \
+  -H "Authorization: Bearer <ADMIN_JWT_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": 5,
+    "newRole": "MENTOR"
+  }'
+```
+
+**Success Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "User role updated successfully",
+  "data": {
+    "user": {
+      "id": 5,
+      "name": "Jane Smith",
+      "email": "jane@example.com",
+      "role": "MENTOR",
+      "updatedAt": "2026-02-11T12:05:00Z"
+    },
+    "changedBy": "admin@example.com",
+    "timestamp": "2026-02-11T12:05:00Z"
+  },
+  "timestamp": "2026-02-11T12:05:00Z"
+}
+```
+
+### Testing Role-Based Access
+
+#### Scenario 1: User Accessing User Endpoint (Allowed)
+
+```bash
+# 1. Login as student
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"student@example.com","password":"StudentPass123"}'
+
+# Response includes token
+# { "data": { "token": "eyJh..." } }
+
+# 2. Access /api/users with token
+curl -X GET http://localhost:3000/api/users \
+  -H "Authorization: Bearer eyJh..."
+
+# ✅ Response: 200 OK with user list
+```
+
+#### Scenario 2: User Accessing Admin Endpoint (Denied)
+
+```bash
+# Same student token, try to access admin endpoint
+curl -X GET http://localhost:3000/api/admin \
+  -H "Authorization: Bearer eyJh..."
+
+# ❌ Response: 403 Forbidden
+# { "message": "Access denied: Admin privileges required" }
+```
+
+#### Scenario 3: Admin Accessing Admin Endpoint (Allowed)
+
+```bash
+# Admin logs in (role: ADMIN)
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"AdminPass123"}'
+
+# 2. Access /api/admin with admin token
+curl -X GET http://localhost:3000/api/admin \
+  -H "Authorization: Bearer <ADMIN_TOKEN>"
+
+# ✅ Response: 200 OK with dashboard statistics
+```
+
+### Least Privilege Principle
+
+This project follows the **least privilege principle**:
+
+1. **Default Role is STUDENT**: New users register with minimal permissions
+2. **Explicit Role Assignment**: Only admins can promote users to MENTOR or ADMIN
+3. **Middleware Enforcement**: Every protected route checks authorization before handling requests
+4. **No Privilege Escalation**: Users cannot modify their own role via API
+
+Example flow:
+```
+User registers → Role = STUDENT
+     ↓
+Can access: /api/users (read)
+Cannot access: /api/admin
+     ↓
+Admin manually updates role: MENTOR
+     ↓
+User can still only access: /api/users (read)
+Cannot access: /api/admin (still requires ADMIN role)
+     ↓
+Admin updates role: ADMIN
+     ↓
+User can now access: /api/admin
+```
+
+### Adding New Roles in the Future
+
+To add a new role (e.g., "EDITOR", "MODERATOR"):
+
+**Step 1: Update Prisma Enum**
+```ts
+// prisma/schema.prisma
+enum Role {
+  STUDENT
+  MENTOR
+  ADMIN
+  EDITOR      // New role
+  MODERATOR   // New role
+}
+```
+
+**Step 2: Run Migration**
+```bash
+npx prisma migrate dev --name add_editor_moderator_roles
+```
+
+**Step 3: Create New Protected Route**
+```ts
+// src/app/api/editor/route.ts
+export async function GET(req: Request) {
+  const userRole = req.headers.get("x-user-role");
+  if (userRole !== "EDITOR") return 403 Forbidden;
+  // ... handler logic
+}
+```
+
+**Step 4: Update Middleware**
+```ts
+// src/middleware.ts
+const editorRoutes = ["/api/editor"];
+if (editorRoutes.some(r => pathname.startsWith(r)) && decoded.role !== "EDITOR") {
+  return 403 Forbidden;
+}
+```
+
+### Why This Matters in Team Projects
+
+1. **Security**: Prevents unauthorized access to sensitive operations
+2. **Scalability**: New roles can be added without modifying existing routes
+3. **Audit Trail**: Admin actions are logged with user context
+4. **Consistency**: Middleware ensures all protected routes follow the same validation
+5. **Clear Permissions**: Explicit role definitions prevent confusion about who can do what
 
 ## Getting Started
 
