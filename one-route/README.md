@@ -398,6 +398,391 @@ function UserForm() {
 4. **Team Coordination**: Clear schema definitions in a shared location reduce communication overhead and onboarding time.
 5. **Type Safety**: `z.infer<>` automatically generates TypeScript types, eliminating manual type definitions and keeping types synchronized with runtime validation logic.
 
+## 13. Authentication & Authorization with JWT
+
+This project implements a secure authentication system using **bcrypt** for password hashing and **JSON Web Tokens (JWT)** for session management.
+
+### Architecture Overview
+
+```
+User Registration (Signup)
+      ↓
+Email & Password Input
+      ↓
+Validate with Zod
+      ↓
+Hash Password with bcrypt (10 salt rounds)
+      ↓
+Store in Database
+      ↓
+Return User Data (no password)
+
+User Login
+      ↓
+Email & Password Input
+      ↓
+Validate with Zod
+      ↓
+Find User in Database
+      ↓
+Compare Password with bcrypt
+      ↓
+Generate JWT Token (1 hour expiry)
+      ↓
+Return Token to Client
+      ↓
+Client Stores Token (localStorage/sessionStorage/cookie)
+      ↓
+Include Token in Authorization Header for Protected Requests
+```
+
+### Password Hashing with bcrypt
+
+Passwords are hashed using bcrypt with **10 salt rounds**:
+
+```ts
+// src/app/api/auth/signup/route.ts
+import bcrypt from "bcrypt";
+
+const hashedPassword = await bcrypt.hash(validatedData.password, 10);
+```
+
+**Why bcrypt?**
+- **Irreversible**: Even if the database is compromised, attackers cannot recover passwords
+- **Salted**: Each password gets a unique salt, preventing rainbow table attacks
+- **Adaptive**: Becoming slower over time as hardware improves, maintaining security
+- **10 rounds**: Optimal balance between security and performance (~100ms per hash)
+
+### JWT Token Generation
+
+On successful login, the server generates a JWT token that encodes user identity:
+
+```ts
+// src/app/api/auth/login/route.ts
+import jwt from "jsonwebtoken";
+
+const token = jwt.sign(
+  { id: user.id, email: user.email, role: user.role },
+  JWT_SECRET,
+  { expiresIn: "1h" }
+);
+```
+
+**Token Properties:**
+- **Payload**: Contains user ID, email, and role
+- **Secret**: Signed with JWT_SECRET (must be kept confidential)
+- **Expiry**: Automatically expires after 1 hour
+- **Non-repudiation**: Cannot be forged without the secret key
+
+### Authentication Schemas
+
+```ts
+// src/lib/schemas/authSchema.ts
+export const signupSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters long"),
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(8, "Password must be at least 8 characters long"),
+});
+
+export const loginSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
+});
+```
+
+### API Endpoints
+
+#### 1. Signup Endpoint
+
+**POST** `/api/auth/signup`
+
+Creates a new user account with email and password.
+
+**Request:**
+```bash
+curl -X POST http://localhost:3000/api/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "John Doe",
+    "email": "john@example.com",
+    "password": "securePassword123"
+  }'
+```
+
+**Success Response (201 Created):**
+```json
+{
+  "success": true,
+  "message": "User registered successfully",
+  "data": {
+    "id": 1,
+    "name": "John Doe",
+    "email": "john@example.com",
+    "role": "STUDENT",
+    "createdAt": "2026-02-11T10:30:00Z"
+  },
+  "timestamp": "2026-02-11T10:30:00Z"
+}
+```
+
+**Error Response (Duplicate Email - 409):**
+```json
+{
+  "success": false,
+  "message": "User with this email already exists",
+  "error": {
+    "code": "E409",
+    "type": "DUPLICATE_USER"
+  },
+  "timestamp": "2026-02-11T10:30:00Z"
+}
+```
+
+**Error Response (Validation - 400):**
+```json
+{
+  "success": false,
+  "message": "Validation Error",
+  "error": {
+    "code": "E001",
+    "type": "VALIDATION_ERROR"
+  },
+  "data": [
+    {
+      "field": "password",
+      "message": "Password must be at least 8 characters long"
+    }
+  ],
+  "timestamp": "2026-02-11T10:30:00Z"
+}
+```
+
+#### 2. Login Endpoint
+
+**POST** `/api/auth/login`
+
+Authenticates a user and returns a JWT token.
+
+**Request:**
+```bash
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john@example.com",
+    "password": "securePassword123"
+  }'
+```
+
+**Success Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Login successful",
+  "data": {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwib...",
+    "user": {
+      "id": 1,
+      "name": "John Doe",
+      "email": "john@example.com",
+      "role": "STUDENT"
+    }
+  },
+  "timestamp": "2026-02-11T10:35:00Z"
+}
+```
+
+**Error Response (Invalid Credentials - 401):**
+```json
+{
+  "success": false,
+  "message": "Invalid credentials",
+  "error": {
+    "code": "E401",
+    "type": "INVALID_PASSWORD"
+  },
+  "timestamp": "2026-02-11T10:35:00Z"
+}
+```
+
+**Error Response (User Not Found - 404):**
+```json
+{
+  "success": false,
+  "message": "User not found",
+  "error": {
+    "code": "E002",
+    "type": "USER_NOT_FOUND"
+  },
+  "timestamp": "2026-02-11T10:35:00Z"
+}
+```
+
+#### 3. Protected Routes Example
+
+**GET** `/api/users` (requires authentication)
+
+Fetches user list - only accessible with valid JWT token.
+
+**Request (with token):**
+```bash
+curl -X GET http://localhost:3000/api/users \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwib..."
+```
+
+**Success Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Users fetched successfully",
+  "data": {
+    "page": 1,
+    "limit": 10,
+    "total": 4,
+    "data": [
+      { "id": 1, "name": "Alice", "email": "alice@example.com", "age": 25 },
+      { "id": 2, "name": "Bob", "email": "bob@example.com", "age": 30 }
+    ],
+    "requestedBy": "john@example.com"
+  },
+  "timestamp": "2026-02-11T10:40:00Z"
+}
+```
+
+**Error Response (Missing Token - 401):**
+```json
+{
+  "success": false,
+  "message": "Missing or invalid token",
+  "error": {
+    "code": "E401",
+    "type": "UNAUTHORIZED"
+  },
+  "timestamp": "2026-02-11T10:40:00Z"
+}
+```
+
+### Token Management Best Practices
+
+#### Token Storage
+- **localStorage**: Convenient but vulnerable to XSS attacks
+- **sessionStorage**: Cleared on browser close, better security
+- **HttpOnly Cookies**: Best practice - inaccessible to JavaScript (prevents XSS)
+- **In-Memory**: Lost on page refresh, good for SPAs with refresh token mechanism
+
+#### Recommended Approach for This Project
+```ts
+// Store token after login
+const { token } = await response.json();
+localStorage.setItem('authToken', token); // or use secure cookie
+
+// Include in API requests
+const headers = {
+  'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+};
+```
+
+#### Token Expiry & Refresh Strategy
+- **Current Setup**: Tokens expire after 1 hour
+- **Refresh Token Flow** (future enhancement):
+  1. Issue short-lived access token (1 hour)
+  2. Issue long-lived refresh token (7 days)
+  3. When access token expires, use refresh token to get new access token
+  4. Requires `/api/auth/refresh` endpoint
+
+```ts
+// Future: Refresh endpoint
+export async function POST(req: Request) {
+  const { refreshToken } = await req.json();
+  const decoded = jwt.verify(refreshToken, REFRESH_SECRET);
+  const newAccessToken = jwt.sign(decoded, JWT_SECRET, { expiresIn: "1h" });
+  return sendSuccess({ token: newAccessToken });
+}
+```
+
+### Testing Authentication Workflow
+
+#### Step 1: Signup
+```bash
+curl -X POST http://localhost:3000/api/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Alice Smith",
+    "email": "alice.smith@example.com",
+    "password": "AliceSecure123"
+  }'
+```
+
+#### Step 2: Login
+```bash
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "alice.smith@example.com",
+    "password": "AliceSecure123"
+  }'
+```
+
+Save the returned `token` value.
+
+#### Step 3: Access Protected Route
+```bash
+curl -X GET http://localhost:3000/api/users \
+  -H "Authorization: Bearer <YOUR_JWT_TOKEN_HERE>"
+```
+
+Replace `<YOUR_JWT_TOKEN_HERE>` with the token from Step 2.
+
+#### Step 4: Test with Invalid Token
+```bash
+curl -X GET http://localhost:3000/api/users \
+  -H "Authorization: Bearer invalid_token_here"
+```
+
+Expected: 401 Unauthorized response.
+
+### Testing Logs - Screenshots
+
+Below are the actual testing logs captured during validation of the authentication endpoints:
+
+**Screenshot 1: Signup Validation & Authentication Tests**
+![Signup and Auth Tests](./public/Screenshot%202026-02-11%20142109.png)
+
+This screenshot shows:
+- ✅ Signup endpoint validation (invalid input handling)
+- ✅ Successful task creation endpoint
+- ✅ Task validation with invalid data
+
+**Screenshot 2: Protected Routes & Login Tests**
+![Protected Routes Tests](./public/Screenshot%202026-02-11%20142211.png)
+
+This screenshot shows:
+- ✅ Protected GET /api/users endpoint without token (401 error)
+- ✅ Protected GET /api/users endpoint with invalid token (401 error)
+- ✅ Successfully missing token detection on protected routes
+
+### Security Considerations
+
+1. **Always Validate Input**: Zod schemas ensure type safety and prevent injection attacks
+2. **Hash Passwords**: bcrypt ensures passwords are never stored in plain text
+3. **HTTPS in Production**: Tokens must only be transmitted over HTTPS to prevent interception
+4. **Secret Key Management**: JWT_SECRET must be kept secure (use environment variables, never commit)
+5. **CORS Configuration**: Restrict API access to trusted domains only
+6. **Rate Limiting**: Implement rate limiting on auth endpoints to prevent brute force attacks
+7. **Token Invalidation**: Consider implementing token blacklist for logout functionality (future enhancement)
+
+### File Structure
+
+```
+src/
+├── app/api/auth/
+│   ├── signup/route.ts           # User registration endpoint
+│   └── login/route.ts            # User authentication endpoint
+├── lib/
+│   ├── schemas/authSchema.ts     # Zod validation schemas
+│   └── auth.ts                   # JWT token utilities
+└── app/api/users/route.ts        # Protected route example
+```
+
 ## Getting Started
 
 Run the development server from `one-route/`:

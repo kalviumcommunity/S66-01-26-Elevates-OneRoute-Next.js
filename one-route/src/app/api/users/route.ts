@@ -1,5 +1,6 @@
 import { sendError, sendSuccess } from '@/lib/responseHandler';
 import { userSchema, UserInput } from '@/lib/schemas/userSchema';
+import { verifyToken } from '@/lib/auth';
 import { ZodError } from 'zod';
 
 type User = UserInput & {
@@ -15,6 +16,14 @@ const USERS: User[] = [
 
 export async function GET(req: Request) {
   try {
+    // Verify JWT token
+    const authHeader = req.headers.get('authorization');
+    const decoded = verifyToken(authHeader);
+
+    if (!decoded) {
+      return sendError('Missing or invalid token', 'UNAUTHORIZED', 401);
+    }
+
     const { searchParams } = new URL(req.url);
     const page = Number(searchParams.get('page')) || 1;
     const limit = Number(searchParams.get('limit')) || 10;
@@ -27,6 +36,7 @@ export async function GET(req: Request) {
         limit,
         total: USERS.length,
         data,
+        requestedBy: decoded.email,
       },
       'Users fetched successfully'
     );
