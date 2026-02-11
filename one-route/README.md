@@ -171,6 +171,233 @@ Because both the symbolic key and numeric code are emitted, logs and dashboards 
 - Shared timestamps make correlation with server logs immediate and expose clock drift.
 - Onboarding improves because each new API file imports the same helpers instead of inventing its own patterns.
 
+## 12. Input Validation with Zod
+
+Data validation is critical for API reliability and security. This project uses [Zod](https://zod.dev) for runtime schema validation that provides type safety and descriptive error messages.
+
+### Schema Definitions
+
+Schemas are centralized in `src/lib/schemas/` and define the shape of valid input for each API endpoint:
+
+#### User Schema
+```ts
+// src/lib/schemas/userSchema.ts
+import { z } from "zod";
+
+export const userSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters long"),
+  email: z.string().email("Invalid email address"),
+  age: z.number().min(18, "User must be 18 or older"),
+});
+
+export type UserInput = z.infer<typeof userSchema>;
+```
+
+#### Task Schema
+```ts
+// src/lib/schemas/taskSchema.ts
+import { z } from "zod";
+
+export const taskSchema = z.object({
+  title: z.string().min(1, "Title is required").min(3, "Title must be at least 3 characters long"),
+  status: z.enum(["pending", "in-progress", "done"]).optional().default("pending"),
+});
+
+export type TaskInput = z.infer<typeof taskSchema>;
+```
+
+### Validation in API Handlers
+
+All POST and PUT routes use Zod to validate input before processing:
+
+```ts
+// src/app/api/users/route.ts
+import { ZodError } from 'zod';
+import { userSchema } from '@/lib/schemas/userSchema';
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+    const validatedData = userSchema.parse(body);
+
+    const newUser = {
+      id: Date.now(),
+      ...validatedData,
+    };
+
+    return sendSuccess(newUser, 'User created successfully', 201);
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(
+        'Validation Error',
+        'VALIDATION_ERROR',
+        400,
+        error.issues.map((e) => ({ field: e.path[0], message: e.message }))
+      );
+    }
+    return sendError('Failed to create user', 'INTERNAL_ERROR', 500, error);
+  }
+}
+```
+
+### Testing Validation
+
+#### ✅ Valid Request (Passing)
+
+```bash
+curl -X POST http://localhost:3000/api/users \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Alice Johnson",
+    "email": "alice@example.com",
+    "age": 25
+  }'
+```
+
+**Expected Response (201 Created):**
+```json
+{
+  "success": true,
+  "message": "User created successfully",
+  "data": {
+    "id": 1707561600000,
+    "name": "Alice Johnson",
+    "email": "alice@example.com",
+    "age": 25
+  },
+  "timestamp": "2026-02-11T10:00:00Z"
+}
+```
+
+#### ❌ Invalid Request (Failing)
+
+```bash
+curl -X POST http://localhost:3000/api/users \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "A",
+    "email": "not-an-email",
+    "age": 16
+  }'
+```
+
+**Expected Response (400 Bad Request):**
+```json
+{
+  "success": false,
+  "message": "Validation Error",
+  "error": {
+    "code": "E001",
+    "type": "VALIDATION_ERROR"
+  },
+  "data": [
+    {
+      "field": "name",
+      "message": "Name must be at least 2 characters long"
+    },
+    {
+      "field": "email",
+      "message": "Invalid email address"
+    },
+    {
+      "field": "age",
+      "message": "User must be 18 or older"
+    }
+  ],
+  "timestamp": "2026-02-11T10:00:00Z"
+}
+```
+
+#### Task Endpoint Examples
+
+**Create Task - Valid:**
+```bash
+curl -X POST http://localhost:3000/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Complete API documentation",
+    "status": "in-progress"
+  }'
+```
+
+**Response (201 Created):**
+```json
+{
+  "success": true,
+  "message": "Task created successfully",
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "title": "Complete API documentation",
+    "status": "in-progress"
+  },
+  "timestamp": "2026-02-11T10:00:00Z"
+}
+```
+
+**Create Task - Invalid (Missing Required Field):**
+```bash
+curl -X POST http://localhost:3000/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{
+    "status": "pending"
+  }'
+```
+
+**Response (400 Bad Request):**
+```json
+{
+  "success": false,
+  "message": "Validation Error",
+  "error": {
+    "code": "E001",
+    "type": "VALIDATION_ERROR"
+  },
+  "data": [
+    {
+      "field": "title",
+      "message": "Title is required"
+    }
+  ],
+  "timestamp": "2026-02-11T10:00:00Z"
+}
+```
+
+### Schema Reuse Between Client and Server
+
+One of the key benefits of Zod is type reusability across your full-stack TypeScript application:
+
+```ts
+// Client-side validation (React component)
+import { userSchema } from '@/lib/schemas/userSchema';
+
+function UserForm() {
+  const handleSubmit = (formData) => {
+    try {
+      const validated = userSchema.parse(formData);
+      // Send to API
+      fetch('/api/users', { method: 'POST', body: JSON.stringify(validated) });
+    } catch (error) {
+      // Display client-side errors
+    }
+  };
+  
+  return <form onSubmit={handleSubmit}>{/* inputs */}</form>;
+}
+```
+
+```ts
+// Server-side validation (API route)
+// Uses the exact same schema - no duplication, guaranteed consistency
+```
+
+### Why Validation Consistency Matters
+
+1. **Single Source of Truth**: Defining validation rules once and reusing them prevents drift between client and server implementations.
+2. **Improved Security**: Server-side validation ensures malicious clients cannot bypass business logic, even if they modify client-side checks.
+3. **Better UX**: Consistent error messages and fields provide users with clear feedback across web and API interfaces.
+4. **Team Coordination**: Clear schema definitions in a shared location reduce communication overhead and onboarding time.
+5. **Type Safety**: `z.infer<>` automatically generates TypeScript types, eliminating manual type definitions and keeping types synchronized with runtime validation logic.
+
 ## Getting Started
 
 Run the development server from `one-route/`:

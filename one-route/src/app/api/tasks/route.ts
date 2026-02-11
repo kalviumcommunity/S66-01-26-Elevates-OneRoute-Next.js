@@ -1,26 +1,27 @@
 import { sendError, sendSuccess } from '@/lib/responseHandler';
-
-type TaskPayload = {
-  title: string;
-  status?: 'pending' | 'in-progress' | 'done';
-};
+import { taskSchema, TaskInput } from '@/lib/schemas/taskSchema';
+import { ZodError } from 'zod';
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as Partial<TaskPayload>;
-
-    if (!body?.title) {
-      return sendError('Missing required field: title', 'VALIDATION_ERROR', 400);
-    }
+    const body = await req.json();
+    const validatedData = taskSchema.parse(body);
 
     const task = {
       id: crypto.randomUUID(),
-      title: body.title,
-      status: body.status ?? 'pending',
+      ...validatedData,
     };
 
     return sendSuccess(task, 'Task created successfully', 201);
   } catch (error) {
+    if (error instanceof ZodError) {
+      return sendError(
+        'Validation Error',
+        'VALIDATION_ERROR',
+        400,
+        error.issues.map((e) => ({ field: e.path[0], message: e.message }))
+      );
+    }
     return sendError('Task creation failed', 'INTERNAL_ERROR', 500, error);
   }
 }
