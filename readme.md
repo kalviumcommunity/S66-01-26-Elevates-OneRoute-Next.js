@@ -333,6 +333,90 @@ LayoutWrapper
 
 > Good UI architecture is invisible to users — but invaluable to developers.
 
+---
+
+## 🌍 Global State Management with Context & Hooks (Next.js)
+
+### Overview
+This module introduces **global state management** in a Next.js application using the **React Context API** and **custom hooks**.  
+It enables different parts of the app (authentication, UI state, themes, sidebar visibility) to share and synchronize data efficiently **without prop drilling**.
+
+By the end of this module, the application uses reusable contexts and hooks to manage shared logic in a scalable and maintainable way.
+
+---
+
+### Why Use Context and Hooks?
+
+| Concept | Purpose | Example |
+|------|--------|--------|
+| **Context** | Share data across the component tree without props | Logged-in user available on all pages |
+| **Custom Hook** | Encapsulate reusable logic | `useAuth()` for login/logout |
+| **Reducer (optional)** | Predictable state transitions | Theme or UI state management |
+
+**Key Idea:**  
+Context centralizes state, while custom hooks provide a clean and safe API to consume it.
+
+---
+
+### Folder Structure
+
+```txt
+app/
+ ├── layout.tsx          # Root layout (providers)
+ ├── (public)/           # Public routes (Home, Login)
+ └── (app)/              # Protected routes (Dashboard, Users)
+
+context/
+ ├── AuthContext.tsx
+ └── UIContext.tsx
+
+hooks/
+ ├── useAuth.ts
+ └── useUI.ts
+
+---
+
+## 📝 Form Validation with React Hook Form & Zod
+
+### Overview
+This module focuses on building **reusable, validated forms** using **React Hook Form** for efficient form state management and **Zod** for schema-based validation.  
+The goal is to ensure **data integrity, accessibility, and reusability** while keeping form logic clean and maintainable.
+
+The solution follows a **schema-first approach**, where validation rules are centralized and UI components remain lightweight.
+
+---
+
+### Why React Hook Form + Zod?
+
+| Tool | Purpose | Benefit |
+|----|-------|--------|
+| React Hook Form | Manages form state efficiently | Minimal re-renders, better performance |
+| Zod | Defines validation rules | Type-safe, reusable schemas |
+| @hookform/resolvers | Bridges RHF and Zod | Simple schema integration |
+
+**Key Idea:**  
+React Hook Form handles *how* data flows, while Zod enforces *what* data is valid.
+
+---
+
+### Folder Structure
+
+```txt
+app/
+ ├── (public)/
+ │    ├── signup/page.tsx
+ │    └── contact/page.tsx
+
+components/
+ └── form/
+      ├── FormInput.tsx
+      └── FormTextarea.tsx
+
+schemas/
+ ├── signup.schema.ts
+ └── contact.schema.ts
+
+---
 
 ## 🗄️ Database Schema & Design
 
