@@ -3,10 +3,13 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {  SignupFormData } from "@/schemas/signup.schema";
-import FormInput from "@/app/components/form/FormInput";
 import { signupSchema } from "@/lib/schemas/authSchema";
+import { useToast } from "@/app/hooks/useToast";
+import FormInput from "@/app/components/form/FormInput";
 
 export default function SignupPage() {
+  const toast = useToast();
+
   const {
     register,
     handleSubmit,
@@ -15,8 +18,17 @@ export default function SignupPage() {
     resolver: zodResolver(signupSchema),
   });
 
-  const onSubmit = (data: SignupFormData) => {
-    console.log("Signup data:", data);
+  const onSubmit = async (data: SignupFormData) => {
+    toast.loading("Creating account...");
+
+    try {
+      await new Promise((res) => setTimeout(res, 800));
+      toast.dismiss();
+      toast.success("Account created successfully!");
+    } catch {
+      toast.dismiss();
+      toast.error("Signup failed");
+    }
   };
 
   return (

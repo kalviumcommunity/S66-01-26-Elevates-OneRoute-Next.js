@@ -418,6 +418,55 @@ schemas/
 
 ---
 
+## 🔔 Toasts, Modals & Feedback UI
+
+### Overview
+This module introduces interactive feedback layers — **toasts, modals, and loaders** — to improve communication between the application and the user.
+
+These elements ensure that users clearly understand:
+- When an action succeeds
+- When something fails
+- When a process is in progress
+- When confirmation is required before proceeding
+
+Thoughtful feedback design makes the application feel **responsive, accessible, and trustworthy**.
+
+---
+
+## 🎯 Feedback Patterns Implemented
+
+| Feedback Type | Use Case | UI Element Used |
+|--------------|----------|----------------|
+| Instant Feedback | “Saved successfully”, “Login successful” | Toast |
+| Blocking Feedback | “Are you sure you want to delete?” | Modal |
+| Process Feedback | “Submitting…”, “Uploading…” | Loader / Spinner |
+
+---
+
+## 🧩 Implementation Details
+
+### 1️⃣ Toast Notifications
+
+- Implemented using **react-hot-toast**
+- Global `ToastProvider` mounted in `layout.tsx`
+- Triggered on:
+  - Signup success/failure
+  - Login success/failure
+  - Contact form submission
+  - Async operations
+
+**Example Flow:**
+```ts
+toast.loading("Saving...");
+try {
+  await saveData();
+  toast.success("Saved successfully!");
+} catch {
+  toast.error("Something went wrong!");
+}
+
+---
+
 ## 🗄️ Database Schema & Design
 
 ### Core Entities
