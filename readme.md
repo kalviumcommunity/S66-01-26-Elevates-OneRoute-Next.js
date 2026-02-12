@@ -256,6 +256,84 @@ Graceful handling of invalid routes through a custom 404 page prevents user frus
 
 ---
 
+## 🧱 Reusable Component Architecture (Next.js)
+
+### Overview
+
+This module implements a modular and reusable UI architecture using the Next.js App Router.  
+Layout and UI logic are centralized into shared components to ensure consistency, scalability, and maintainability across the application.
+
+---
+
+### Key Objectives
+
+- Reduce UI duplication across pages
+- Maintain consistent layout and design
+- Improve scalability and code readability
+- Standardize accessibility and interaction patterns
+
+---
+
+### Architecture Highlights
+
+- Global layout wrappers for shared structure (Header + Sidebar)
+- Route groups to separate public and authenticated pages
+- Reusable UI components for consistent styling
+- Barrel exports for cleaner imports
+
+---
+
+### Folder Structure
+
+app/
+├── (public)/ # Home, Login, Signup
+├── (app)/ # Dashboard, Users, Profile
+└── layout.tsx # Root layout
+
+components/
+├── layout/ # Header, Sidebar, LayoutWrapper
+├── ui/ # Button, StatCard, FollowUpItem
+└── index.ts # Barrel exports
+
+---
+
+### Component Hierarchy
+
+LayoutWrapper
+├── Header
+├── Sidebar
+└── Page Content
+
+
+---
+
+### Reusable Components
+- **Header** → Global navigation and branding
+- **Sidebar** → Contextual app navigation
+- **LayoutWrapper** → Shared page structure
+- **Button** → Variant-based reusable button
+- **StatCard** → Dashboard metric display
+- **FollowUpItem** → Timeline-style list item
+
+---
+
+### Accessibility & UX
+- Semantic HTML (`header`, `nav`, `main`)
+- Keyboard-friendly navigation
+- Visible focus states
+- Consistent spacing, colors, and typography
+
+---
+
+### Outcome
+- Cleaner and more maintainable codebase
+- Faster feature development
+- Consistent user experience across pages
+- Production-ready, scalable UI architecture
+
+> Good UI architecture is invisible to users — but invaluable to developers.
+
+
 ## 🗄️ Database Schema & Design
 
 ### Core Entities
