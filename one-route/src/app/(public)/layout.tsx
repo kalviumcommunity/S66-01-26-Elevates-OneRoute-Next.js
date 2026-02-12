@@ -1,11 +1,14 @@
+import Header from "../components/layout/Header";
+
 export default function PublicLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <main className="min-h-screen bg-white flex flex-col">
-      {children}
-    </main>
+    <>
+      <Header />
+      <main className="min-h-screen">{children}</main>
+    </>
   );
 }
