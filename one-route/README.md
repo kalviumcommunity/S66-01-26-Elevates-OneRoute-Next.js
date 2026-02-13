@@ -2,6 +2,32 @@
 
 This repo contains a [Next.js](https://nextjs.org) App Router project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app). The `app/` directory powers both UI routes and API endpoints, so a clear, consistent strategy for file-based routing is essential.
 
+## Handling Asynchronous States
+
+### Why fallback UI matters
+- Users feel confident when every async phase has a visual explanation; skeletons imply progress while error boundaries acknowledge failures with empathy.
+- Showing intent keeps perceived performance high because people see the structure of the incoming data instead of a blank canvas.
+
+### Implementation summary
+- The home route now fetches remote team data with an intentional $1.5\text{s}$ delay inside [src/app/page.tsx](src/app/page.tsx). Append `?simulateError=1` to trigger a controlled failure that surfaces the boundary.
+- Loading is represented by a shimmering grid defined in [src/app/loading.tsx](src/app/loading.tsx), matching the eventual layout to minimize layout shift.
+- User-friendly recovery messaging plus a retry button live in [src/app/error.tsx](src/app/error.tsx); it logs the original error, offers `reset()`, and links back home.
+- Dashboard analytics plus the entire users workspace also opt into the pattern: each page simulates latency, exposes `?simulateError` toggles, and renders dedicated skeletons ([src/app/(app)/dashboard/loading.tsx](src/app/(app)/dashboard/loading.tsx), [src/app/(app)/users/loading.tsx](src/app/(app)/users/loading.tsx), [src/app/(app)/users/[id]/loading.tsx](src/app/(app)/users/%5Bid%5D/loading.tsx)) alongside tailored error boundaries ([src/app/(app)/dashboard/error.tsx](src/app/(app)/dashboard/error.tsx), [src/app/(app)/users/error.tsx](src/app/(app)/users/error.tsx), [src/app/(app)/users/[id]/error.tsx](src/app/(app)/users/%5Bid%5D/error.tsx)).
+
+### Route-level fallbacks
+- `app/(app)/dashboard`: use `?simulateError=dashboard` (or `=1`) to break the metrics fetch and validate the red recovery panel; the skeleton mirrors the 4-card stat grid plus follow-up list.
+- `app/(app)/users`: simulate with `?simulateError=users` to see the directory boundary, which logs the error and nudges the retry; the skeleton mirrors stacked profile cards.
+- `app/(app)/users/[id]`: append `?simulateError=user-detail` while on any profile to trigger the blue fallback; the loading state locks to the breadcrumb and detail card proportions so nothing jumps.
+
+### Evidence & testing checklist
+- Simulate slow networks in DevTools and capture three screenshots/GIFs (loading skeleton, error fallback, successful retry) for each of `dashboard`, `users`, and `users-[id]` routes inside `docs/screenshots/`.
+- Document API failures by visiting `http://localhost:3000/?simulateError=1` plus `?simulateError=dashboard|users|user-detail` and confirming the retry path resolves once the query is removed.
+- Record the console log emitted by every error boundary to prove the original error is acknowledged server-side before showing the fallback.
+
+### Reflection
+- These guardrails make the interface resilient: people never question whether the app froze, and they regain control immediately after a hiccup.
+- Rolling the pattern through nested routes proved the skeleton-first approach scales; user trust improves when the UI previews layout, retries are obvious, and every failure path feels intentional.
+
 ## 1. File-Based Routing Primer
 
 Every folder inside `app/api/` becomes a REST endpoint, and each `route.ts` exports HTTP verb handlers:
