@@ -99,6 +99,16 @@ const users = [
   },
 ];
 
+const fetchUsers = async (simulateError?: string) => {
+  await wait(1800);
+
+  if (shouldSimulateError(simulateError)) {
+    throw new Error("Failed to load user directory");
+  }
+
+  return MOCK_USERS;
+};
+
 export default function UsersPage() {
   const { theme } = useUI();
   const [searchQuery, setSearchQuery] = useState("");
