@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { handleError, AppError } from "@/lib/errorHandler";
 import { logger } from "@/lib/logger";
 import { enforcePermission } from "@/lib/rbac";
+import { sanitizePayload } from "@/lib/security/sanitizer";
 
 export async function GET(req: Request) {
   try {
@@ -70,7 +71,8 @@ export async function POST(req: Request) {
     );
 
     const body = await req.json();
-    const { userId, newRole } = body;
+    const sanitizedBody = sanitizePayload(body);
+    const { userId, newRole } = sanitizedBody;
 
     if (!userId || !newRole) {
       throw new AppError(

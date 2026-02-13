@@ -1863,6 +1863,45 @@ npm run dev
 4. Log cache hits/misses for monitoring
 5. Use proper cache key design to separate distinct queries
 
+## 17. Input Sanitization & OWASP Hardening
+
+### Shared Sanitizer Library
+- [`sanitize-html`](https://www.npmjs.com/package/sanitize-html) now powers [src/lib/security/sanitizer.ts](src/lib/security/sanitizer.ts), which centralizes `sanitizeString()`, deep `sanitizePayload()`, output `encodeForHTML()`, and `scrubForLogging()` helpers so UI, APIs, and logs all rely on the same policy.
+- Control characters, inline scripts, and dangerous URI protocols are stripped before any user-controlled content is echoed back or persisted.
+
+### Hardened Entry Points
+- Authentication and admin APIs clean JSON bodies *before* validation: [src/app/api/auth/login/route.ts](src/app/api/auth/login/route.ts), [src/app/api/auth/signup/route.ts](src/app/api/auth/signup/route.ts), [src/app/api/auth/refresh/route.ts](src/app/api/auth/refresh/route.ts), [src/app/api/admin/route.ts](src/app/api/admin/route.ts), [src/app/api/users/route.ts](src/app/api/users/route.ts), [src/app/api/users/update/route.ts](src/app/api/users/update/route.ts), and [src/app/api/tasks/route.ts](src/app/api/tasks/route.ts).
+- Client-rendered acknowledgements (for example the toast on [src/app/(public)/contact/page.tsx](src/app/(public)/contact/page.tsx)) run through `sanitizePayload()` to prevent DOM-based XSS when echoing names or feedback back to the screen.
+- Observability is safe by default because [src/lib/logger.ts](src/lib/logger.ts) and [src/lib/errorHandler.ts](src/lib/errorHandler.ts) both sanitize messages and metadata prior to emitting JSON logs or HTTP responses, eliminating log-forging vectors while still carrying useful context.
+
+### Before / After Evidence
+Posting HTML directly to `POST /api/tasks` previously echoed attacker-controlled markup in the response payload. The same request now round-trips sanitized content, proving the new guard rail:
+
+```bash
+curl -X POST http://localhost:3000/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title":"<img src=x onerror=\"alert(1)\" />"}'
+```
+
+```json
+{
+  "success": true,
+  "message": "Task created successfully",
+  "data": {
+    "id": "2748fcd9-bc06-4c43-9968-83fcb3c1f7dd",
+    "title": "alert(1)",
+    "status": "pending"
+  }
+}
+```
+
+The response and the structured log entry both receive stripped text (`alert(1)`), demonstrating OWASP-aligned input sanitization plus log hygiene. Similar payloads sent to login/signup/admin endpoints are cleaned before Zod validation, so SQLi-style metacharacters never cross into Prisma queries.
+
+### Reflection & Next Steps
+- The shared helper gives us one chokepoint for tuning policies (e.g., whitelisting limited Markdown for rich text); future CMS-style features can opt into relaxed configs without weakening system defaults.
+- Sanitizing optimistic UI toasts and server logs closes the often-overlooked DOM/log injection gaps while keeping observability actionable.
+- Remaining work: extend the same helper into any future WYSIWYG editors and add automated tests that assert sanitized outputs for representative XSS proofs of concept.
+
 ## Getting Started
 
 Run the development server from `one-route/`:

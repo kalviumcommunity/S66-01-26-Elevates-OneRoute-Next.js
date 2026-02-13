@@ -10,6 +10,7 @@ import {
   signRefreshToken,
   verifyRefreshToken,
 } from "@/lib/auth";
+import { sanitizePayload } from "@/lib/security/sanitizer";
 
 export async function POST(req: Request) {
   try {
@@ -18,7 +19,8 @@ export async function POST(req: Request) {
     if (!refreshToken) {
       try {
         const body = await req.json();
-        refreshToken = body?.refreshToken;
+        const sanitizedBody = sanitizePayload(body);
+        refreshToken = sanitizedBody?.refreshToken;
       } catch {
         refreshToken = undefined;
       }

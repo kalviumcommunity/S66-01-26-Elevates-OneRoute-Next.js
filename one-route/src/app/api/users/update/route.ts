@@ -4,6 +4,7 @@ import { logger } from '@/lib/logger';
 import { verifyToken } from '@/lib/auth';
 import redis from '@/lib/redis';
 import { z } from 'zod';
+import { sanitizePayload } from '@/lib/security/sanitizer';
 
 const updateUserSchema = z.object({
   id: z.number(),
@@ -30,7 +31,8 @@ export async function PUT(req: Request) {
     }
 
     const body = await req.json();
-    const validatedData = updateUserSchema.parse(body);
+    const sanitizedBody = sanitizePayload(body);
+    const validatedData = updateUserSchema.parse(sanitizedBody);
 
     const userIndex = USERS.findIndex(u => u.id === validatedData.id);
     if (userIndex === -1) {

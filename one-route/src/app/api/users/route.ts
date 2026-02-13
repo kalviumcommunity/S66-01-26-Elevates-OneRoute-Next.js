@@ -5,6 +5,7 @@ import { handleError, AppError } from "@/lib/errorHandler";
 import { logger } from "@/lib/logger";
 import { enforcePermission } from "@/lib/rbac";
 import redis from "@/lib/redis";
+import { sanitizePayload } from "@/lib/security/sanitizer";
 
 type User = UserInput & {
   id: number;
@@ -86,7 +87,8 @@ export async function POST(req: Request) {
     }, "Access denied: only admins can add users");
 
     const body = await req.json();
-    const validatedData = userSchema.parse(body);
+    const sanitizedBody = sanitizePayload(body);
+    const validatedData = userSchema.parse(sanitizedBody);
 
     const newUser: User = {
       id: Date.now(),

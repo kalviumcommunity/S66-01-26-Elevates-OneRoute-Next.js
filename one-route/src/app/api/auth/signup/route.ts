@@ -4,11 +4,13 @@ import { prisma } from "@/lib/prisma";
 import { handleError, AppError } from "@/lib/errorHandler";
 import { logger } from "@/lib/logger";
 import bcrypt from "bcrypt";
+import { sanitizePayload } from "@/lib/security/sanitizer";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const validatedData = signupSchema.parse(body);
+    const sanitizedBody = sanitizePayload(body);
+    const validatedData = signupSchema.parse(sanitizedBody);
 
     const existingUser = await prisma.user.findUnique({
       where: { email: validatedData.email },
