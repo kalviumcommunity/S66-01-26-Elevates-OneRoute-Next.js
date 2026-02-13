@@ -2,19 +2,23 @@ import { sendSuccess } from "@/lib/responseHandler";
 import { prisma } from "@/lib/prisma";
 import { handleError, AppError } from "@/lib/errorHandler";
 import { logger } from "@/lib/logger";
+import { enforcePermission } from "@/lib/rbac";
 
 export async function GET(req: Request) {
   try {
     const userRole = req.headers.get("x-user-role");
     const userEmail = req.headers.get("x-user-email");
 
-    if (userRole !== "ADMIN") {
-      throw new AppError(
-        "Access denied: Admin privileges required",
-        "FORBIDDEN",
-        403
-      );
-    }
+    enforcePermission(
+      {
+        role: userRole,
+        permission: "admin.access",
+        resource: "/api/admin",
+        actor: userEmail,
+        source: "GET /api/admin",
+      },
+      "Access denied: Admin privileges required"
+    );
 
     const totalUsers = await prisma.user.count();
     const usersByRole = await prisma.user.groupBy({
@@ -35,7 +39,10 @@ export async function GET(req: Request) {
       },
     };
 
-    logger.info("Admin dashboard accessed", { adminEmail, stats: adminStats });
+    logger.info("Admin dashboard accessed", {
+      adminEmail: userEmail,
+      stats: adminStats,
+    });
 
     return sendSuccess(
       adminStats,
@@ -51,13 +58,16 @@ export async function POST(req: Request) {
     const userRole = req.headers.get("x-user-role");
     const adminEmail = req.headers.get("x-user-email");
 
-    if (userRole !== "ADMIN") {
-      throw new AppError(
-        "Access denied: Admin privileges required",
-        "FORBIDDEN",
-        403
-      );
-    }
+    enforcePermission(
+      {
+        role: userRole,
+        permission: "admin.manage",
+        resource: "/api/admin",
+        actor: adminEmail,
+        source: "POST /api/admin",
+      },
+      "Access denied: Admin privileges required"
+    );
 
     const body = await req.json();
     const { userId, newRole } = body;
