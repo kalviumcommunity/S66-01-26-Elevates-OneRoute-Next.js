@@ -2,6 +2,25 @@
 
 This repo contains a [Next.js](https://nextjs.org) App Router project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app). The `app/` directory powers both UI routes and API endpoints, so a clear, consistent strategy for file-based routing is essential.
 
+## Handling Asynchronous States
+
+### Why fallback UI matters
+- Users feel confident when every async phase has a visual explanation; skeletons imply progress while error boundaries acknowledge failures with empathy.
+- Showing intent keeps perceived performance high because people see the structure of the incoming data instead of a blank canvas.
+
+### Implementation summary
+- The home route now fetches remote team data with an intentional $1.5\text{s}$ delay inside [src/app/page.tsx](src/app/page.tsx). Append `?simulateError=1` to trigger a controlled failure that surfaces the boundary.
+- Loading is represented by a shimmering grid defined in [src/app/loading.tsx](src/app/loading.tsx), matching the eventual layout to minimize layout shift.
+- User-friendly recovery messaging plus a retry button live in [src/app/error.tsx](src/app/error.tsx); it logs the original error, offers `reset()`, and links back home.
+
+### Evidence & testing checklist
+- Simulate slow networks in DevTools and capture three screenshots/GIFs (loading skeleton, error fallback, successful retry) inside `docs/screenshots/`.
+- Document API failures by visiting `http://localhost:3000/?simulateError=1` and confirming the retry path resolves once the query is removed.
+
+### Reflection
+- These guardrails make the interface resilient: people never question whether the app froze, and they regain control immediately after a hiccup.
+- The pattern is reusable—drop a `loading.tsx` / `error.tsx` pair into any route folder whenever you introduce data dependencies.
+
 ## 1. File-Based Routing Primer
 
 Every folder inside `app/api/` becomes a REST endpoint, and each `route.ts` exports HTTP verb handlers:
