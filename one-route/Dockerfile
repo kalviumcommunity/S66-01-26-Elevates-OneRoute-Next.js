@@ -5,11 +5,11 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Copy package files and install dependencies
-COPY one-route/package*.json ./
+COPY package*.json ./
 RUN npm install
 
 # Copy project files and build the app
-COPY one-route .
+COPY . .
 RUN npm run build
 
 # Expose the app port
