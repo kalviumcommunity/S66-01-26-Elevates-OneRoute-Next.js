@@ -1,6 +1,7 @@
-import ToastProvider from "./components/feedback/ToastProvider";
-import { AuthProvider } from "./context/AuthContext";
-import { UIProvider } from "./context/UIContext";
+"use client";
+
+import { AuthProvider } from "@/app/context/AuthContext";
+import { UIProvider } from "@/app/context/UIContext";
 import "./globals.css";
 
 export default function RootLayout({
@@ -13,7 +14,6 @@ export default function RootLayout({
       <body>
         <AuthProvider>
           <UIProvider>
-           <ToastProvider />
             {children}
           </UIProvider>
         </AuthProvider>
