@@ -3,10 +3,15 @@ import { loginSchema } from "@/lib/schemas/authSchema";
 import { prisma } from "@/lib/prisma";
 import { handleError, AppError } from "@/lib/errorHandler";
 import { logger } from "@/lib/logger";
+import {
+  REFRESH_TOKEN_COOKIE_NAME,
+  REFRESH_TOKEN_COOKIE_OPTIONS,
+  signAccessToken,
+  signRefreshToken,
+  ACCESS_TOKEN_METADATA,
+  REFRESH_TOKEN_METADATA,
+} from "@/lib/auth";
 import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
-
-const JWT_SECRET = process.env.JWT_SECRET || "dev-super-secret-key-change-in-production";
 
 export async function POST(req: Request) {
   try {
@@ -39,17 +44,21 @@ export async function POST(req: Request) {
       );
     }
 
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: "1h" }
-    );
+    const basePayload = { id: user.id, email: user.email, role: user.role };
+    const accessToken = signAccessToken(basePayload);
+    const refreshToken = signRefreshToken(basePayload);
+    const accessTokenExpiresAt = new Date(
+      Date.now() + ACCESS_TOKEN_METADATA.ttlSeconds * 1000
+    ).toISOString();
 
     logger.info("User logged in", { userId: user.id, email: user.email });
 
-    return sendSuccess(
+    const response = sendSuccess(
       {
-        token,
+        token: accessToken,
+        expiresIn: ACCESS_TOKEN_METADATA.expiresIn,
+        expiresAt: accessTokenExpiresAt,
+        refreshTokenExpiresIn: REFRESH_TOKEN_METADATA.expiresIn,
         user: {
           id: user.id,
           name: user.name,
@@ -60,6 +69,10 @@ export async function POST(req: Request) {
       "Login successful",
       200
     );
+
+    response.cookies.set(REFRESH_TOKEN_COOKIE_NAME, refreshToken, REFRESH_TOKEN_COOKIE_OPTIONS);
+
+    return response;
   } catch (error) {
     return handleError(error, "POST /api/auth/login");
   }

@@ -453,9 +453,11 @@ Find User in Database
       ↓
 Compare Password with bcrypt
       ↓
-Generate JWT Token (1 hour expiry)
+    Generate Access Token (15 minute expiry)
       ↓
-Return Token to Client
+    Issue Refresh Token Cookie (7 day expiry)
+      ↓
+    Return Tokens to Client
       ↓
 Client Stores Token (localStorage/sessionStorage/cookie)
       ↓
@@ -490,15 +492,45 @@ import jwt from "jsonwebtoken";
 const token = jwt.sign(
   { id: user.id, email: user.email, role: user.role },
   JWT_SECRET,
-  { expiresIn: "1h" }
+  { expiresIn: "15m" }
 );
 ```
 
 **Token Properties:**
 - **Payload**: Contains user ID, email, and role
 - **Secret**: Signed with JWT_SECRET (must be kept confidential)
-- **Expiry**: Automatically expires after 1 hour
+- **Expiry**: Automatically expires after 15 minutes by default (env override supported)
 - **Non-repudiation**: Cannot be forged without the secret key
+
+### JWT Structure Deep Dive
+
+Every access token issued by [src/app/api/auth/login/route.ts](src/app/api/auth/login/route.ts) follows the canonical `header.payload.signature` pattern:
+
+```json
+{
+  "header": { "alg": "HS256", "typ": "JWT" },
+  "payload": {
+    "id": 42,
+    "email": "mentor@example.com",
+    "role": "MENTOR",
+    "exp": 1715120000
+  },
+  "signature": "base64url(hmacSHA256(header.payload, JWT_SECRET))"
+}
+```
+
+- **Header** – declares `HS256` as the signing algorithm so verifiers know how to validate.
+- **Payload** – carries non-sensitive claims (user id, email, role, `exp`). Passwords or secrets never live here because JWTs are encoded, not encrypted.
+- **Signature** – `HMACSHA256` over the first two segments to guarantee integrity; any tampering invalidates the token.
+
+### Access vs Refresh Tokens
+
+| Token | Lifetime | Storage | Purpose |
+|-------|----------|---------|---------|
+| **Access** | 15 minutes (configurable via `JWT_ACCESS_EXPIRES_IN`) | Kept in memory/React state on the client | Attach as `Authorization: Bearer <token>` for protected requests processed by [src/middleware.ts](src/middleware.ts) |
+| **Refresh** | 7 days (configurable via `JWT_REFRESH_EXPIRES_IN`) | HTTP-only `SameSite=Strict` cookie named `one-route.refreshToken` | Request new access tokens without re-entering credentials via [src/app/api/auth/refresh/route.ts](src/app/api/auth/refresh/route.ts) |
+
+Durations and secrets are centralized in [src/lib/auth.ts](src/lib/auth.ts), making rotation a single-env-change operation.
 
 ### Authentication Schemas
 
@@ -689,41 +721,57 @@ curl -X GET http://localhost:3000/api/users \
 
 ### Token Management Best Practices
 
-#### Token Storage
-- **localStorage**: Convenient but vulnerable to XSS attacks
-- **sessionStorage**: Cleared on browser close, better security
-- **HttpOnly Cookies**: Best practice - inaccessible to JavaScript (prevents XSS)
-- **In-Memory**: Lost on page refresh, good for SPAs with refresh token mechanism
+#### Storage & Transport Decisions
+- **Access token** – never written to persistent storage; the client keeps it in memory (for example, React context) and re-fetches a new one whenever the page reloads.
+- **Refresh token** – saved as the HTTP-only cookie `one-route.refreshToken` so JavaScript cannot read or mutate it, neutralising XSS token theft attempts.
+- **Cookie attributes** – [src/lib/auth.ts](src/lib/auth.ts) pins `SameSite: "strict"`, `secure: true` in production, and `path: "/"` so only first-party requests can send it, blocking CSRF probes from other origins.
 
-#### Recommended Approach for This Project
 ```ts
-// Store token after login
-const { token } = await response.json();
-localStorage.setItem('authToken', token); // or use secure cookie
-
-// Include in API requests
-const headers = {
-  'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-};
+// src/app/api/auth/login/route.ts
+response.cookies.set(REFRESH_TOKEN_COOKIE_NAME, refreshToken, REFRESH_TOKEN_COOKIE_OPTIONS);
 ```
 
-#### Token Expiry & Refresh Strategy
-- **Current Setup**: Tokens expire after 1 hour
-- **Refresh Token Flow** (future enhancement):
-  1. Issue short-lived access token (1 hour)
-  2. Issue long-lived refresh token (7 days)
-  3. When access token expires, use refresh token to get new access token
-  4. Requires `/api/auth/refresh` endpoint
+#### Environment Toggles
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `JWT_ACCESS_EXPIRES_IN` | `15m` | Controls access-token lifetime |
+| `JWT_REFRESH_SECRET` | dev fallback | Separate signing secret for refresh tokens |
+| `JWT_REFRESH_EXPIRES_IN` | `7d` | Controls refresh-token lifetime + cookie `maxAge` |
+| `REFRESH_TOKEN_COOKIE_NAME` | `one-route.refreshToken` | Allows renaming per deployment |
+
+#### Expiry & Rotation Strategy
+1. [src/app/api/auth/login/route.ts](src/app/api/auth/login/route.ts) signs a 15-minute access token and a 7-day refresh token.
+2. The refresh token is rotated on every call to [src/app/api/auth/refresh/route.ts](src/app/api/auth/refresh/route.ts); stolen cookies expire quickly and previous values become useless.
+3. Access tokens are short lived, so replay attacks have a small window even without revocation lists.
+4. Middleware in [src/middleware.ts](src/middleware.ts) checks the access token on every protected request.
+
+#### Client Fetch Helper
 
 ```ts
-// Future: Refresh endpoint
-export async function POST(req: Request) {
-  const { refreshToken } = await req.json();
-  const decoded = jwt.verify(refreshToken, REFRESH_SECRET);
-  const newAccessToken = jwt.sign(decoded, JWT_SECRET, { expiresIn: "1h" });
-  return sendSuccess({ token: newAccessToken });
+async function fetchWithAuth(input: RequestInfo, init?: RequestInit) {
+  const attempt = async () => {
+    const token = authStore.getAccessToken();
+    const headers = new Headers(init?.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    return fetch(input, { ...init, headers });
+  };
+
+  let response = await attempt();
+  if (response.status !== 401) return response;
+
+  // Access token expired → ask refresh endpoint (cookie attached automatically).
+  const refreshRes = await fetch("/api/auth/refresh", { method: "POST", credentials: "include" });
+  if (!refreshRes.ok) throw new Error("Refresh failed");
+  const payload = await refreshRes.json();
+  authStore.setAccessToken(payload.data.token, payload.data.expiresAt);
+
+  response = await attempt();
+  return response;
 }
 ```
+
+This pattern keeps access tokens in volatile state while the refresh token silently renews sessions through secure cookies.
 
 ### Testing Authentication Workflow
 
@@ -738,9 +786,10 @@ curl -X POST http://localhost:3000/api/auth/signup \
   }'
 ```
 
-#### Step 2: Login
+#### Step 2: Login + Capture Cookies
 ```bash
-curl -X POST http://localhost:3000/api/auth/login \
+curl -i -c cookies.txt \
+  -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "email": "alice.smith@example.com",
@@ -748,23 +797,39 @@ curl -X POST http://localhost:3000/api/auth/login \
   }'
 ```
 
-Save the returned `token` value.
+- Response body returns the 15-minute access token and its expiry metadata.
+- `cookies.txt` now stores `one-route.refreshToken` for subsequent refresh calls.
 
 #### Step 3: Access Protected Route
 ```bash
+ACCESS_TOKEN="<copy-from-step-2>"
 curl -X GET http://localhost:3000/api/users \
-  -H "Authorization: Bearer <YOUR_JWT_TOKEN_HERE>"
+  -H "Authorization: Bearer ${ACCESS_TOKEN}"
 ```
 
-Replace `<YOUR_JWT_TOKEN_HERE>` with the token from Step 2.
-
-#### Step 4: Test with Invalid Token
+#### Step 4: Refresh Access Token (simulate expiry by omitting/invalidating the header)
 ```bash
-curl -X GET http://localhost:3000/api/users \
-  -H "Authorization: Bearer invalid_token_here"
+curl -i -b cookies.txt -c cookies.txt \
+  -X POST http://localhost:3000/api/auth/refresh
 ```
 
-Expected: 401 Unauthorized response.
+- Returns `{ token, expiresIn, expiresAt }`.
+- Cookie jar updates automatically with the rotated refresh token.
+
+#### Step 5: Retry Protected Route With Fresh Token
+```bash
+NEW_ACCESS_TOKEN="<copy-from-step-4>"
+curl -X GET http://localhost:3000/api/users \
+  -H "Authorization: Bearer ${NEW_ACCESS_TOKEN}"
+```
+
+#### Step 6: Invalid Refresh Attempt
+```bash
+# Delete/alter cookies.txt first
+curl -i -b cookies.txt -X POST http://localhost:3000/api/auth/refresh
+```
+
+Expected: `401 UNAUTHORIZED` plus the cookie cleared in the response headers.
 
 ### Testing Logs - Screenshots
 
@@ -786,15 +851,33 @@ This screenshot shows:
 - ✅ Protected GET /api/users endpoint with invalid token (401 error)
 - ✅ Successfully missing token detection on protected routes
 
+**Console Capture: Refresh Flow (2026-02-13)**
+
+```text
+$ curl -i -b cookies.txt -c cookies.txt -X POST http://localhost:3000/api/auth/refresh
+HTTP/1.1 200 OK
+Set-Cookie: one-route.refreshToken=eyJhbGciOi...; Path=/; HttpOnly; SameSite=Strict
+{
+  "success": true,
+  "message": "Access token refreshed",
+  "data": {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "expiresIn": "15m",
+    "expiresAt": "2026-02-13T10:18:07.000Z"
+  }
+}
+```
+
 ### Security Considerations
 
-1. **Always Validate Input**: Zod schemas ensure type safety and prevent injection attacks
-2. **Hash Passwords**: bcrypt ensures passwords are never stored in plain text
-3. **HTTPS in Production**: Tokens must only be transmitted over HTTPS to prevent interception
-4. **Secret Key Management**: JWT_SECRET must be kept secure (use environment variables, never commit)
-5. **CORS Configuration**: Restrict API access to trusted domains only
-6. **Rate Limiting**: Implement rate limiting on auth endpoints to prevent brute force attacks
-7. **Token Invalidation**: Consider implementing token blacklist for logout functionality (future enhancement)
+| Threat | Description | Mitigation in this project |
+|--------|-------------|---------------------------|
+| **XSS** | Malicious scripts attempt to read tokens from browser storage | Refresh tokens never touch `localStorage` — they live in HTTP-only cookies; access tokens stay in volatile memory and carry minimal claims. Input flowing into forms is validated with Zod before persistence. |
+| **CSRF** | An attacker triggers authenticated requests from another origin | `SameSite=Strict` cookies prevent the refresh token from accompanying cross-site requests; protected APIs additionally require the `Authorization` header so a forged form submission is insufficient. |
+| **Token Replay** | A stolen access token is reused elsewhere | Access tokens expire after 15 minutes and refresh tokens rotate on every call, shrinking the replay window. Server logs (see [src/lib/logger.ts](src/lib/logger.ts)) capture token usage anomalies for investigation. |
+| **Credential Stuffing / Brute Force** | Automated password guessing | bcrypt hashing plus rate limiting at the platform edge (Vercel/NGINX) slow attackers; repeated failures trigger `logger.warn` telemetry in [src/app/api/auth/login/route.ts](src/app/api/auth/login/route.ts). |
+
+Remaining risks: logout currently relies on cookie expiration, so a token blacklist would be the next enhancement for immediate revocation. All secrets (`JWT_SECRET`, `JWT_REFRESH_SECRET`) must be injected via environment variables and served exclusively over HTTPS in production.
 
 ### File Structure
 
@@ -802,7 +885,8 @@ This screenshot shows:
 src/
 ├── app/api/auth/
 │   ├── signup/route.ts           # User registration endpoint
-│   └── login/route.ts            # User authentication endpoint
+│   ├── login/route.ts            # User authentication endpoint + cookie issuance
+│   └── refresh/route.ts          # Rotates refresh cookie and re-issues access tokens
 ├── app/api/admin/
 │   └── route.ts                  # Admin-only dashboard & role management
 ├── lib/
