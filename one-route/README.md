@@ -1902,6 +1902,35 @@ The response and the structured log entry both receive stripped text (`alert(1)`
 - Sanitizing optimistic UI toasts and server logs closes the often-overlooked DOM/log injection gaps while keeping observability actionable.
 - Remaining work: extend the same helper into any future WYSIWYG editors and add automated tests that assert sanitized outputs for representative XSS proofs of concept.
 
+## 18. HTTPS Enforcement & Security Headers
+
+### Why these headers matter
+| Header | Purpose | Example attack prevented |
+|--------|---------|--------------------------|
+| HSTS | Forces browsers to upgrade every request to HTTPS (including subdomains) | Man-in-the-middle downgrades |
+| CSP | Limits where scripts, styles, images, and connections can originate | Cross-Site Scripting, data exfiltration |
+| CORS | Defines which origins may call the API and what methods/headers are accepted | Unauthorized cross-origin API calls |
+
+Security headers run before any application code, so they form the first defensive ring around the app and require almost no runtime overhead.
+
+### Configuration snippets
+- **Global headers**: [next.config.ts](next.config.ts#L1-L55) injects HSTS (`Strict-Transport-Security`), CSP, Referrer-Policy, X-Frame-Options, and Permissions-Policy for every route. The CSP defaults to `$\texttt{default-src 'self'}$`, locks frames (`frame-ancestors 'self'`), and whitelists only our own domains plus Google Fonts. Dev builds allow `'unsafe-eval'` so webpack can hot reload, while production strips it.
+- **Trusted origins list**: `CORS_ALLOWED_ORIGINS` lets ops specify comma-separated domains (e.g., `https://app.oneroute.io,https://admin.oneroute.io`). We seed it with `https://oneroute.app` and `http://localhost:3000` so local dev keeps working.
+- **CORS-aware middleware**: [src/middleware.ts](src/middleware.ts#L1-L220) now:
+  - Short-circuits preflight (`OPTIONS`) requests with a `204` plus `Access-Control-Allow-*` headers.
+  - Rejects disallowed origins with a `403` before RBAC, preventing browsers from even receiving a response body.
+  - Continues to attach `x-user-*` headers for protected routes, then appends the necessary CORS headers (origin echo, `Vary: Origin`, allowed methods/headers, credentials flag).
+
+### How to verify
+1. **Browser headers**: Open your deployed app, request any page, and inspect the response in DevTools → Network → Headers. You should see `Strict-Transport-Security`, `Content-Security-Policy`, and `Access-Control-Allow-Origin` (for API calls) with the exact values from the config.
+2. **Security scanners**: Run [securityheaders.com](https://securityheaders.com/) or [Mozilla Observatory](https://observatory.mozilla.org/) against your staging/prod domain. Capture screenshots for submission and keep them in `docs/screenshots/` alongside the previous RBAC evidence.
+3. **CORS behavior**: From an unlisted origin (or by temporarily changing `CORS_ALLOWED_ORIGINS`), hit `/api/users`. The middleware now responds with `403 Forbidden` and no `Access-Control-Allow-Origin`, proving that unauthorized front-ends cannot piggyback on the API.
+
+### Reflection
+- Enforcing HTTPS via HSTS removes an entire class of downgrade attacks and nudges us toward the browser preload list once production proves stable.
+- CSP and CORS do require bookkeeping (every new CDN or analytics endpoint must be listed), but that deliberate friction is healthy—it forces the team to inventory every third-party script before deploying it.
+- The combination of CORS allow-lists plus the existing RBAC checks means browsers must satisfy *both* network-level and application-level policies, dramatically reducing the blast radius if a token ever leaks.
+
 ## Getting Started
 
 Run the development server from `one-route/`:
