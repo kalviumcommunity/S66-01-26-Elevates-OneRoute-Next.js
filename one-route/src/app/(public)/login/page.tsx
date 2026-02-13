@@ -17,15 +17,19 @@ import {
   CheckCircle2
 } from "lucide-react";
 import { useUI } from "@/app/hooks/useUI";
+import { useAuth } from "@/app/hooks/useAuth";
+import { Role, ROLES, ROLE_DESCRIPTIONS } from "@/config/roles";
 
 export default function LoginPage() {
   const router = useRouter();
   const { theme } = useUI();
+  const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<Role>("STUDENT");
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,6 +38,11 @@ export default function LoginPage() {
     // mock auth
     setTimeout(() => {
       Cookies.set("token", "mock.jwt.token");
+      login({
+        name: email.split("@")[0] || "User",
+        email,
+        role: selectedRole,
+      });
       router.push("/dashboard");
     }, 600);
   };
@@ -155,7 +164,7 @@ export default function LoginPage() {
               </span>
             </Link>
 
-            {/* Login Card */}
+              {/* Login Card */}
             <div
               className={`rounded-3xl p-8 backdrop-blur-xl border shadow-2xl ${
                 theme === "dark"
@@ -169,6 +178,40 @@ export default function LoginPage() {
                 <p className={`${theme === "dark" ? "text-slate-400" : "text-slate-600"}`}>
                   Sign in to continue your journey
                 </p>
+              </div>
+
+              {/* Role Picker */}
+              <div className="mb-6">
+                <p className={`${theme === "dark" ? "text-slate-300" : "text-slate-700"} text-sm font-medium mb-2`}>
+                  Select your role to preview matching permissions
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {ROLES.map((role) => {
+                    const isActive = selectedRole === role;
+                    return (
+                      <button
+                        key={role}
+                        type="button"
+                        onClick={() => setSelectedRole(role)}
+                        className={`text-left rounded-2xl border px-4 py-3 transition-all duration-300 ${
+                          isActive
+                            ? "border-violet-500 bg-violet-500/10 shadow-lg"
+                            : theme === "dark"
+                              ? "border-slate-700 hover:border-violet-500/60"
+                              : "border-slate-200 hover:border-violet-500/60"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-semibold">{role}</span>
+                          {isActive && <CheckCircle2 className="w-4 h-4 text-violet-500" />}
+                        </div>
+                        <p className="text-xs leading-snug opacity-80">
+                          {ROLE_DESCRIPTIONS[role]}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Social Login */}

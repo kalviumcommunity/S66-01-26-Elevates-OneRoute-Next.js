@@ -929,6 +929,50 @@ model User {
 }
 ```
 
+### Role Hierarchy & Permission Matrix
+
+Centralized definitions live in [src/config/roles.ts](src/config/roles.ts) and capture both the hierarchy (Admin → Mentor → Student) and the permissions each role inherits:
+
+| Permission | Purpose | Granted To |
+|------------|---------|------------|
+| `applications.view` | Read personal dashboards | STUDENT, MENTOR, ADMIN |
+| `applications.manage` | Update mentee pipelines | MENTOR, ADMIN |
+| `users.read` | Browse the directory | MENTOR, ADMIN |
+| `users.create` | Add new members | ADMIN |
+| `users.promote` | Escalate user roles | ADMIN |
+| `reports.view` | Open analytics & reports | MENTOR, ADMIN |
+| `admin.access` | Hit privileged admin endpoints | ADMIN |
+| `admin.manage` | Mutate platform-level data | ADMIN |
+
+Because the file defines inheritance (`ADMIN` inherits `MENTOR`, which inherits `STUDENT`), future roles can be added without touching middleware logic.
+
+```ts
+// src/config/roles.ts
+export const ROLE_DEFINITIONS = {
+  STUDENT: { permissions: ["applications.view"] },
+  MENTOR: { inherits: ["STUDENT"], permissions: ["applications.manage", "users.read", "reports.view"] },
+  ADMIN: { inherits: ["MENTOR"], permissions: ["users.create", "users.promote", "admin.access", "admin.manage"] },
+};
+```
+
+### Policy Evaluation
+
+- **Middleware**: [src/middleware.ts](src/middleware.ts#L1-L89) inspects every `/api/users` and `/api/admin` request, maps `(method, path)` → `Permission`, and invokes `checkPermission()` from [src/lib/rbac.ts](src/lib/rbac.ts#L6-L40). Requests without the required grant receive a `403` before the handler runs.
+- **API routes**: Handlers still call `enforcePermission()` for defense in depth. For example, [src/app/api/users/route.ts](src/app/api/users/route.ts#L27-L75) refuses to list users unless the JWT carries `users.read`, while [src/app/api/admin/route.ts](src/app/api/admin/route.ts#L6-L83) requires `admin.manage` for role promotions.
+- **UI components**: The login form ([src/app/(public)/login/page.tsx](src/app/(public)/login/page.tsx#L19-L167)) now includes a role picker so testers can emulate Student, Mentor, or Admin journeys. The sidebar ([src/app/components/layout/Sidebar.tsx](src/app/components/layout/Sidebar.tsx)) hides links like “Users” or “Analytics” when `can(permission)` returns false, and displays the active role badge so people immediately know their current access level.
+
+### Auditing & Logging
+
+Every allow/deny decision is logged in JSON for easy ingestion:
+
+```json
+{"level":"info","message":"[RBAC] permission check","meta":{"role":"MENTOR","permission":"users.read","resource":"/api/users","source":"GET /api/users","actor":"mentor@example.com","allowed":false},"timestamp":"2026-02-13T10:52:11.911Z"}
+```
+
+The example above shows a mentor being denied directory access; a matching “ALLOWED” log is emitted when an admin repeats the same request. These logs, combined with the access-level chip in the sidebar, make it clear which policies fired during manual testing or production incidents.
+
+**Reflection**: Centralizing roles in code makes future scaling straightforward—new policies just extend `ROLE_DEFINITIONS`, and the same middleware + `enforcePermission()` plumbing keeps working. If we ever outgrow RBAC, the logger already captures `resource`, `actor`, and `allowed`, so migrating to attribute-based policies mostly means swapping the evaluator implementation while retaining the audit trail.
+
 ### Authorization Flow Diagram
 
 ```

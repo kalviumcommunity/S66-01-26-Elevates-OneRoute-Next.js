@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import jwt from "jsonwebtoken";
 
+import { checkPermission } from "@/lib/rbac";
+import { Permission } from "@/config/roles";
+
 const JWT_SECRET = process.env.JWT_SECRET || "dev-super-secret-key-change-in-production";
 
 interface DecodedToken {
@@ -12,14 +15,34 @@ interface DecodedToken {
   exp: number;
 }
 
+type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+
+type RoutePermission = {
+  matcher: RegExp;
+  permissionsByMethod: Partial<Record<HttpMethod, Permission>>;
+};
+
+const routePermissions: RoutePermission[] = [
+  {
+    matcher: /^\/api\/users/, 
+    permissionsByMethod: {
+      GET: "users.read",
+      POST: "users.create",
+    },
+  },
+  {
+    matcher: /^\/api\/admin/,
+    permissionsByMethod: {
+      GET: "admin.access",
+      POST: "admin.manage",
+    },
+  },
+];
+
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Routes that require authentication
   const protectedRoutes = ["/api/users", "/api/admin"];
-  const adminRoutes = ["/api/admin"];
-
-  // Check if the current route is protected
   const isProtected = protectedRoutes.some((route) => pathname.startsWith(route));
 
   if (isProtected) {
@@ -44,20 +67,29 @@ export function middleware(req: NextRequest) {
     try {
       const decoded = jwt.verify(token, JWT_SECRET) as DecodedToken;
 
-      // Role-based access control for admin routes
-      const isAdminRoute = adminRoutes.some((route) => pathname.startsWith(route));
-      if (isAdminRoute && decoded.role !== "ADMIN") {
-        return NextResponse.json(
-          {
-            success: false,
-            message: "Access denied: Admin privileges required",
-            error: {
-              code: "E403",
-              type: "FORBIDDEN",
+      const permission = resolvePermission(pathname, req.method as HttpMethod);
+      if (permission) {
+        const allowed = checkPermission({
+          role: decoded.role,
+          permission,
+          resource: pathname,
+          actor: decoded.email,
+          source: `middleware:${req.method}`,
+        });
+
+        if (!allowed) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: "Access denied: insufficient permissions",
+              error: {
+                code: "E403",
+                type: "FORBIDDEN",
+              },
             },
-          },
-          { status: 403 }
-        );
+            { status: 403 }
+          );
+        }
       }
 
       // Attach decoded user info to headers for downstream handlers
@@ -92,3 +124,11 @@ export function middleware(req: NextRequest) {
 export const config = {
   matcher: ["/api/users/:path*", "/api/admin/:path*"],
 };
+
+function resolvePermission(pathname: string, method: HttpMethod) {
+  const match = routePermissions.find((route) => route.matcher.test(pathname));
+  if (!match) {
+    return null;
+  }
+  return match.permissionsByMethod[method] ?? null;
+}

@@ -1,9 +1,10 @@
-import { sendSuccess } from '@/lib/responseHandler';
-import { userSchema, UserInput } from '@/lib/schemas/userSchema';
-import { verifyToken } from '@/lib/auth';
-import { handleError, AppError } from '@/lib/errorHandler';
-import { logger } from '@/lib/logger';
-import redis from '@/lib/redis';
+import { sendSuccess } from "@/lib/responseHandler";
+import { userSchema, UserInput } from "@/lib/schemas/userSchema";
+import { verifyToken } from "@/lib/auth";
+import { handleError, AppError } from "@/lib/errorHandler";
+import { logger } from "@/lib/logger";
+import { enforcePermission } from "@/lib/rbac";
+import redis from "@/lib/redis";
 
 type User = UserInput & {
   id: number;
@@ -18,24 +19,32 @@ const USERS: User[] = [
 
 export async function GET(req: Request) {
   try {
-    const authHeader = req.headers.get('authorization');
+    const authHeader = req.headers.get("authorization");
     const decoded = verifyToken(authHeader);
 
     if (!decoded) {
-      throw new AppError('Missing or invalid token', 'UNAUTHORIZED', 401);
+      throw new AppError("Missing or invalid token", "UNAUTHORIZED", 401);
     }
 
+    enforcePermission({
+      role: decoded.role,
+      permission: "users.read",
+      resource: "/api/users",
+      actor: decoded.email,
+      source: "GET /api/users",
+    });
+
     const { searchParams } = new URL(req.url);
-    const page = Number(searchParams.get('page')) || 1;
-    const limit = Number(searchParams.get('limit')) || 10;
+    const page = Number(searchParams.get("page")) || 1;
+    const limit = Number(searchParams.get("limit")) || 10;
     const cacheKey = `users:list:page:${page}:limit:${limit}`;
 
     const cachedData = await redis.get(cacheKey);
     if (cachedData) {
-      logger.info('Cache hit for users list', { userEmail: decoded.email, page, limit, cacheKey });
+      logger.info("Cache hit for users list", { userEmail: decoded.email, page, limit, cacheKey });
       return sendSuccess(
         JSON.parse(cachedData),
-        'Users fetched from cache'
+        "Users fetched from cache"
       );
     }
 
@@ -51,16 +60,31 @@ export async function GET(req: Request) {
 
     await redis.set(cacheKey, JSON.stringify(response), 'EX', 300);
 
-    logger.info('Cache miss for users list - fetched from database', { userEmail: decoded.email, page, limit, cacheKey });
+    logger.info("Cache miss for users list - fetched from database", { userEmail: decoded.email, page, limit, cacheKey });
 
-    return sendSuccess(response, 'Users fetched successfully');
+    return sendSuccess(response, "Users fetched successfully");
   } catch (error) {
-    return handleError(error, 'GET /api/users');
+    return handleError(error, "GET /api/users");
   }
 }
 
 export async function POST(req: Request) {
   try {
+    const authHeader = req.headers.get("authorization");
+    const decoded = verifyToken(authHeader);
+
+    if (!decoded) {
+      throw new AppError("Missing or invalid token", "UNAUTHORIZED", 401);
+    }
+
+    enforcePermission({
+      role: decoded.role,
+      permission: "users.create",
+      resource: "/api/users",
+      actor: decoded.email,
+      source: "POST /api/users",
+    }, "Access denied: only admins can add users");
+
     const body = await req.json();
     const validatedData = userSchema.parse(body);
 
@@ -71,12 +95,12 @@ export async function POST(req: Request) {
 
     USERS.push(newUser);
 
-    await redis.del('users:list:*');
+    await redis.del("users:list:*");
 
-    logger.info('User created and cache invalidated', { userId: newUser.id, email: newUser.email });
+    logger.info("User created and cache invalidated", { userId: newUser.id, email: newUser.email });
 
-    return sendSuccess(newUser, 'User created successfully', 201);
+    return sendSuccess(newUser, "User created successfully", 201);
   } catch (error) {
-    return handleError(error, 'POST /api/users');
+    return handleError(error, "POST /api/users");
   }
 }
