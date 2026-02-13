@@ -22,6 +22,7 @@ import {
   HelpCircle
 } from "lucide-react";
 import { contactSchema } from "@/lib/schemas/contact";
+import { sanitizePayload } from "@/lib/security/sanitizer";
 
 export default function ContactPage() {
   const toast = useToast();
@@ -37,12 +38,13 @@ export default function ContactPage() {
   });
 
   const onSubmit = async (data: ContactFormData) => {
+    const safeData = sanitizePayload(data);
     toast.loading("Sending message...");
 
     try {
       await new Promise((res) => setTimeout(res, 800));
       toast.dismiss();
-      toast.success("Message sent successfully!");
+      toast.success(`Thanks, ${safeData.name || "friend"}! Message received safely.`);
       reset(); // Clear form after success
     } catch {
       toast.dismiss();

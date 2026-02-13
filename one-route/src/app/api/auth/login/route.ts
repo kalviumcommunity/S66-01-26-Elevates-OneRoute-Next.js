@@ -12,11 +12,13 @@ import {
   REFRESH_TOKEN_METADATA,
 } from "@/lib/auth";
 import bcrypt from "bcrypt";
+import { sanitizePayload } from "@/lib/security/sanitizer";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const validatedData = loginSchema.parse(body);
+    const sanitizedBody = sanitizePayload(body);
+    const validatedData = loginSchema.parse(sanitizedBody);
 
     const user = await prisma.user.findUnique({
       where: { email: validatedData.email },

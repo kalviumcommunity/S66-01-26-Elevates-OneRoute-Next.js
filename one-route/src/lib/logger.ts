@@ -1,3 +1,5 @@
+import { scrubForLogging, sanitizeString } from "@/lib/security/sanitizer";
+
 interface LogMetadata {
   [key: string]: any;
 }
@@ -6,8 +8,8 @@ export const logger = {
   info: (message: string, meta?: LogMetadata) => {
     const logEntry = {
       level: "info",
-      message,
-      ...(meta && { meta }),
+      message: sanitizeString(message),
+      ...(meta && { meta: scrubForLogging(meta) }),
       timestamp: new Date().toISOString(),
     };
     console.log(JSON.stringify(logEntry));
@@ -16,8 +18,8 @@ export const logger = {
   warn: (message: string, meta?: LogMetadata) => {
     const logEntry = {
       level: "warn",
-      message,
-      ...(meta && { meta }),
+      message: sanitizeString(message),
+      ...(meta && { meta: scrubForLogging(meta) }),
       timestamp: new Date().toISOString(),
     };
     console.warn(JSON.stringify(logEntry));
@@ -26,8 +28,8 @@ export const logger = {
   error: (message: string, meta?: LogMetadata) => {
     const logEntry = {
       level: "error",
-      message,
-      ...(meta && { meta }),
+      message: sanitizeString(message),
+      ...(meta && { meta: scrubForLogging(meta) }),
       timestamp: new Date().toISOString(),
     };
     console.error(JSON.stringify(logEntry));
@@ -37,8 +39,8 @@ export const logger = {
     if (process.env.NODE_ENV === "development") {
       const logEntry = {
         level: "debug",
-        message,
-        ...(meta && { meta }),
+        message: sanitizeString(message),
+        ...(meta && { meta: scrubForLogging(meta) }),
         timestamp: new Date().toISOString(),
       };
       console.log(JSON.stringify(logEntry));

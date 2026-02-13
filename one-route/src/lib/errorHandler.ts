@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { logger } from "./logger";
 import { ZodError } from "zod";
+import { sanitizePayload, sanitizeString } from "@/lib/security/sanitizer";
 
 export class AppError extends Error {
   constructor(
@@ -25,40 +26,43 @@ export function handleError(error: any, context: string) {
     statusCode = error.statusCode;
     message = isProd ? "Something went wrong. Please try again later." : error.message;
     errorCode = error.code;
-    details = error.details;
+    details = error.details ? sanitizePayload(error.details) : null;
   } else if (error instanceof ZodError) {
     statusCode = 400;
     message = "Validation error";
     errorCode = "VALIDATION_ERROR";
     details = error.issues.map((issue) => ({
       field: issue.path[0],
-      message: issue.message,
+      message: sanitizeString(issue.message),
     }));
   } else if (error instanceof Error) {
     message = isProd ? "Something went wrong. Please try again later." : error.message;
   }
 
+  const sanitizedDetails = details ? sanitizePayload(details) : null;
+  const clientMessage = sanitizeString(message);
+
   const logMeta = {
     context,
     errorCode,
-    message: error?.message || "Unknown error",
+    message: sanitizeString(error?.message || clientMessage || "Unknown error"),
     stack: isProd ? "[REDACTED]" : error?.stack,
-    ...(details && { details }),
+    ...(sanitizedDetails && { details: sanitizedDetails }),
   };
 
   logger.error(`Error in ${context}`, logMeta);
 
   const response: any = {
     success: false,
-    message,
+    message: clientMessage,
     error: {
       code: getErrorCode(errorCode, statusCode),
       type: errorCode,
     },
   };
 
-  if (!isProd && details) {
-    response.details = details;
+  if (!isProd && sanitizedDetails) {
+    response.details = sanitizedDetails;
   }
 
   if (!isProd && error?.stack) {

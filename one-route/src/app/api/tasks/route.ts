@@ -2,11 +2,13 @@ import { sendSuccess } from '@/lib/responseHandler';
 import { taskSchema } from '@/lib/schemas/taskSchema';
 import { handleError } from '@/lib/errorHandler';
 import { logger } from '@/lib/logger';
+import { sanitizePayload } from '@/lib/security/sanitizer';
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const validatedData = taskSchema.parse(body);
+    const sanitizedBody = sanitizePayload(body);
+    const validatedData = taskSchema.parse(sanitizedBody);
 
     const task = {
       id: crypto.randomUUID(),
