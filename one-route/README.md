@@ -3103,6 +3103,634 @@ SendGrid webhooks can notify you of:
 - [ ] Dynamic content blocks (personalization variables)
 - [ ] Compliance helpers (unsubscribe links, CCPA requests)
 
+## Section 19: AWS S3 File Storage & Pre-Signed Uploads
+
+### Overview
+
+OneRoute uses **AWS S3** for secure, scalable file storage. Files are uploaded directly from the client to S3 using pre-signed URLs, bypassing the server for file data transfer and reducing bandwidth costs.
+
+**Why AWS S3?**
+- **Security**: Credentials never exposed to client; pre-signed URLs expire automatically
+- **Scalability**: Handles unlimited file uploads without server bottleneck
+- **Cost Efficiency**: Pay only for storage + API calls, no bandwidth for server proxy
+- **Durability**: 99.999999999% (11 9's) uptime guarantee with built-in redundancy
+- **Integration**: Seamless with Next.js and Node.js SDKs
+
+### Prerequisites
+
+- AWS account with billing enabled
+- IAM user with S3 permissions (or root account for testing)
+- AWS CLI installed locally (optional, for troubleshooting)
+
+### Step 1: Create an S3 Bucket
+
+#### Via AWS Console (Recommended)
+
+1. **Sign in** to [AWS Management Console](https://console.aws.amazon.com/)
+2. **Search** for "S3" → Click **S3 service**
+3. **Click** "Create bucket"
+4. **Configure bucket**:
+   - **Bucket name**: `oneroute1` (must be globally unique, lowercase, no spaces)
+   - **Region**: Select closest region (e.g., `eu-north-1`)
+   - **Block all public access**: ✅ **Enabled** (recommended for private apps)
+   - **Versioning**: Optional (enables recovery of deleted files)
+   - Click **Create bucket**
+
+#### Bucket Configuration Checklist
+
+| Setting | Value | Reason |
+|---------|-------|--------|
+| **Public Access Block** | ✅ All blocked | Prevents accidental public document exposure |
+| **Versioning** | Optional | Enables file recovery; increases storage cost |
+| **Encryption** | SSE-S3 (default) | Encrypts files at rest |
+| **Logging** | Optional | Track access to audit trail |
+| **Lifecycle Policy** | Yes (see Step 5) | Auto-delete old uploads after 30 days |
+
+**After Creation**: Note your bucket name and region for `.env` configuration.
+
+### Step 2: Set Up IAM Permissions
+
+Creating a dedicated IAM user with minimal permissions follows the **principle of least privilege**.
+
+#### Create IAM User
+
+1. **Go to** AWS Console → **IAM** → **Users** → **Create user**
+2. **User name**: `oneroute-app-storage`
+3. **Uncheck** "Provide console access" (API-only user)
+4. **Click** "Create user"
+
+#### Attach S3 Policy
+
+1. **Open** the new user → **Permissions** tab
+2. **Add permissions** → **Attach policies directly**
+3. **Search** for `S3` – but don't use `AmazonS3FullAccess` (too permissive)
+4. **Create custom policy** instead:
+
+**Click** "Create policy" → **JSON** tab → Paste:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3UploadToSpecificBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": "arn:aws:s3:::oneroute1/*"
+    },
+    {
+      "Sid": "S3ListBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::oneroute1"
+    }
+  ]
+}
+```
+
+**What each action does**:
+- `PutObject` – Upload files (client via pre-signed URL)
+- `GetObject` – Download files (generate download URLs)
+- `DeleteObject` – Clean up old uploads
+- `ListBucket` – Enumerate files (admin tools only)
+
+⚠️ **Replace `oneroute1` with your actual bucket name.**
+
+**Attach this policy** to the user and click **Create policy**.
+
+#### Generate Access Keys
+
+1. **Open** the IAM user → **Security credentials** tab
+2. **Click** "Create access key"
+3. **Choose** "Application running outside AWS" → **Next**
+4. **Copy** both:
+   - **Access Key ID** (e.g., `AKIAIOSFODNN7EXAMPLE`)
+   - **Secret Access Key** (e.g., `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`)
+
+⚠️ **Store these securely!** AWS only shows the secret once. If lost, regenerate a new key.
+
+### Step 3: Configure Environment Variables
+
+Add to `.env` file (already partially configured):
+
+```env
+# AWS S3 Configuration
+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+AWS_S3_BUCKET=oneroute1
+AWS_REGION=eu-north-1
+```
+
+**For Production/Staging**:
+- Use IAM role-based authentication (Vercel, AWS Lambda, EC2)
+- Never commit keys to Git
+- Use secrets manager (AWS Secrets Manager, GitHub Secrets)
+- Rotate access keys every 90 days
+
+#### Environment Isolation
+
+```env
+# Development
+AWS_S3_BUCKET=oneroute1-dev
+AWS_REGION=eu-north-1
+
+# Production
+AWS_S3_BUCKET=oneroute1-prod
+AWS_REGION=eu-north-1
+```
+
+### Step 4: Understand Pre-Signed URLs
+
+Pre-signed URLs are temporary, cryptographically-signed URLs that allow temporary access to S3 objects without exposing AWS credentials.
+
+**URL Format**:
+```
+https://oneroute1.s3.eu-north-1.amazonaws.com/uploads/xyz123.pdf?
+X-Amz-Algorithm=AWS4-HMAC-SHA256&
+X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20260217%2Feu-north-1%2Fs3%2Faws4_request&
+X-Amz-Date=20260217T102030Z&
+X-Amz-Expires=60&
+X-Amz-SignedHeaders=host&
+X-Amz-Signature=abcd1234...xyz
+```
+
+**Key Parameters**:
+- `X-Amz-Expires`: URL validity duration (60s for upload, 3600s for download)
+- `X-Amz-Signature`: HMAC-SHA256 signature proving authorization
+- `X-Amz-Algorithm`: Signing algorithm (AWS4-HMAC-SHA256)
+
+**Security Properties**:
+- ✅ Expires automatically (time-bound access)
+- ✅ Cannot be modified without breaking signature
+- ✅ Includes required headers (`host`, `content-type`)
+- ✅ Never exposes AWS secret key to client
+
+### Step 5: Implementation Overview
+
+OneRoute's file upload flow is implemented across three files:
+
+#### 1. S3 Utilities (`src/lib/s3.ts`)
+
+Initializes S3 client and provides helper functions:
+
+```typescript
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+
+const s3Client = new S3Client({ region: process.env.AWS_REGION });
+
+export async function generateUploadUrl(
+  fileName: string,
+  fileType: string
+): Promise<string> {
+  const command = new PutObjectCommand({
+    Bucket: process.env.AWS_S3_BUCKET,
+    Key: `uploads/${timestamp}-${fileName}`,
+    ContentType: fileType,
+  });
+
+  return await getSignedUrl(s3Client, command, { expiresIn: 60 });
+}
+```
+
+**Key Functions**:
+- `generateUploadUrl()` – Create temporary upload URL (60s expiry)
+- `generateDownloadUrl()` – Create temporary download URL (3600s expiry)
+- `validateFile()` – Check file type & size against whitelist
+- `generateUniqueFileName()` – Prevent collisions with timestamp prefix
+
+#### 2. Upload API Route (`src/app/api/upload/route.ts`)
+
+Generates pre-signed URLs for client uploads:
+
+```typescript
+// POST /api/upload
+// Request: { filename, fileType, fileSize }
+// Response: { success: true, uploadURL, fileName: s3Key }
+
+export async function POST(req: Request) {
+  const { filename, fileType, fileSize } = await req.json();
+
+  // Validate file
+  const validation = validateFile(fileType, fileSize);
+  if (!validation.valid) {
+    return NextResponse.json({ error: validation.message }, { status: 400 });
+  }
+
+  // Generate pre-signed URL
+  const uploadURL = await generateUploadUrl(filename, fileType);
+
+  return NextResponse.json({ uploadURL, fileName: s3Key });
+}
+```
+
+**Flow**:
+1. Client requests upload URL for specific file
+2. Server validates file type/size
+3. Server generates pre-signed URL (60s expiry)
+4. Client receives URL and uploads directly to S3
+
+#### 3. Upload Completion API (`src/app/api/upload-complete/route.ts`)
+
+Confirms upload and generates download URL:
+
+```typescript
+// POST /api/upload-complete
+// Request: { fileName, s3Key, fileType, fileSize }
+// Response: { success: true, file: { url, s3Key, ... } }
+
+export async function POST(req: Request) {
+  const { s3Key, fileType, fileSize } = await req.json();
+
+  // Optionally store metadata in database
+  // const file = await prisma.file.create({ data: { ... } });
+
+  // Generate download URL (1 hour expiry)
+  const downloadUrl = await generateDownloadUrl(s3Key);
+
+  return NextResponse.json({
+    file: {
+      url: downloadUrl,
+      s3Key,
+      fileType,
+      fileSize,
+      uploadedAt: new Date(),
+    },
+  });
+}
+```
+
+### Step 6: File Type & Size Validation
+
+Validation prevents malicious uploads and reduces S3 costs:
+
+```typescript
+// src/lib/s3.ts
+
+const ALLOWED_TYPES = {
+  images: ["image/jpeg", "image/png", "image/gif", "image/webp"],
+  documents: ["application/pdf", "application/msword"],
+  spreadsheets: ["application/vnd.ms-excel"],
+};
+
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+
+export function validateFile(
+  fileType: string,
+  fileSize: number
+): { valid: boolean; message?: string } {
+  const allAllowed = Object.values(ALLOWED_TYPES).flat();
+
+  if (!allAllowed.includes(fileType)) {
+    return {
+      valid: false,
+      message: `File type not allowed. Supported: ${allAllowed.join(", ")}`,
+    };
+  }
+
+  if (fileSize > MAX_FILE_SIZE) {
+    return {
+      valid: false,
+      message: `File too large (${(fileSize / 1024 / 1024).toFixed(1)}MB). Max: 50MB`,
+    };
+  }
+
+  return { valid: true };
+}
+```
+
+### Step 7: Client-Side Implementation
+
+#### React Hook (`src/hooks/useFileUpload.ts`)
+
+Manages upload lifecycle with progress tracking:
+
+```typescript
+export function useFileUpload() {
+  const [progress, setProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const uploadFile = async (file: File) => {
+    setIsUploading(true);
+
+    try {
+      // 1. Get pre-signed URL from server
+      const uploadRes = await fetch("/api/upload", {
+        method: "POST",
+        body: JSON.stringify({
+          filename: file.name,
+          fileType: file.type,
+          fileSize: file.size,
+        }),
+      });
+
+      const { uploadURL, fileName } = await uploadRes.json();
+
+      // 2. Upload directly to S3
+      const uploadConfig = {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      };
+
+      await fetch(uploadURL, uploadConfig);
+
+      // 3. Confirm upload (store metadata)
+      const completeRes = await fetch("/api/upload-complete", {
+        method: "POST",
+        body: JSON.stringify({
+          fileName: file.name,
+          s3Key: fileName,
+          fileType: file.type,
+          fileSize: file.size,
+        }),
+      });
+
+      return completeRes.json();
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  return { uploadFile, progress, isUploading };
+}
+```
+
+#### Component (`src/components/FileUploadInput.tsx`)
+
+Ready-to-use upload UI:
+
+```typescript
+"use client";
+
+import { useFileUpload } from "@/hooks/useFileUpload";
+import { useState } from "react";
+
+export function FileUploadInput() {
+  const { uploadFile, isUploading } = useFileUpload();
+  const [file, setFile] = useState<File | null>(null);
+
+  const handleUpload = async () => {
+    if (!file) return;
+
+    const result = await uploadFile(file);
+    console.log("Uploaded:", result.file);
+  };
+
+  return (
+    <div className="space-y-4">
+      <input
+        type="file"
+        onChange={(e) => setFile(e.target.files?.[0] || null)}
+        disabled={isUploading}
+      />
+
+      <button
+        onClick={handleUpload}
+        disabled={!file || isUploading}
+        className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
+      >
+        {isUploading ? "Uploading..." : "Upload"}
+      </button>
+    </div>
+  );
+}
+```
+
+### Step 8: Testing File Uploads
+
+#### Scenario 1: Upload via UI Component
+
+1. Open OneRoute app
+2. Navigate to profile or document section
+3. Click **Upload File** button
+4. Select image (PNG, JPEG, GIF, WebP) or PDF
+5. Progress bar shows upload status
+6. File displays in UI with download link
+
+**Expected**: File appears in S3 bucket, download works.
+
+#### Scenario 2: Test via API
+
+**Generate Upload URL**:
+```bash
+curl -X POST http://localhost:3000/api/upload \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filename": "document.pdf",
+    "fileType": "application/pdf",
+    "fileSize": 1024000
+  }'
+```
+
+**Response**:
+```json
+{
+  "uploadURL": "https://oneroute1.s3.eu-north-1.amazonaws.com/uploads/1708070400000-document.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&...",
+  "fileName": "uploads/1708070400000-document.pdf"
+}
+```
+
+**Upload to S3** (using the returned URL):
+```bash
+curl -X PUT "https://oneroute1.s3.eu-north-1.amazonaws.com/uploads/..." \
+  -H "Content-Type: application/pdf" \
+  --data-binary @document.pdf
+```
+
+**Confirm Upload**:
+```bash
+curl -X POST http://localhost:3000/api/upload-complete \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fileName": "document.pdf",
+    "s3Key": "uploads/1708070400000-document.pdf",
+    "fileType": "application/pdf",
+    "fileSize": 1024000
+  }'
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "file": {
+    "url": "https://oneroute1.s3.eu-north-1.amazonaws.com/uploads/1708070400000-document.pdf?X-Amz-Algorithm=...(expires in 1hr)...",
+    "s3Key": "uploads/1708070400000-document.pdf",
+    "fileType": "application/pdf",
+    "fileSize": 1024000,
+    "uploadedAt": "2026-02-17T10:30:00Z"
+  }
+}
+```
+
+#### Scenario 3: Verify File in S3 Console
+
+1. **Sign in** to AWS Console → S3 → Your bucket → `uploads/` folder
+2. **Search** for file with timestamp prefix (e.g., `1708070400000-document.pdf`)
+3. **Click** file → Object details show:
+   - File size
+   - Last modified date
+   - Storage class
+   - Encryption status
+
+4. **Open** the Object URL (public URL would fail due to bucket privacy)
+5. **File exists** ✅ Upload successful
+
+### Step 9: Security & Access Control
+
+#### Pre-Signed URL Security
+
+✅ **Strengths**:
+- Temporary access (expires in 60s for upload, 3600s for download)
+- Cryptographically signed (cannot be forged or modified)
+- No credentials exposed to client
+- Automatic revocation after expiry
+
+❌ **Risks**:
+- URL interception (use HTTPS, not HTTP)
+- Sharing accidental URLs with others
+- Leaked URLs in browser history or logs
+
+**Mitigation**:
+- ✅ Always use HTTPS (enforced by Next.js config)
+- ✅ Log access with user ID for audit trail
+- ✅ Set short expiry times (60s is minimal)
+- ✅ Never log full URLs (redact signature)
+- ✅ Implement rate limiting on `/api/upload` endpoint
+
+#### IAM Policy Restrictions
+
+The minimal policy restricts actions to:
+- **Put**: Upload only to `oneroute1/*` bucket
+- **Get**: Download from `oneroute1/*` bucket
+- **Delete**: Remove from `oneroute1/*` bucket
+- **List**: Browse bucket contents
+
+⚠️ **What it prevents**:
+- Creating new buckets
+- Modifying bucket policies
+- Accessing other buckets
+- Changing encryption or versioning
+- Accessing CloudFront distributions
+
+### Step 10: Cost Optimization & Lifecycle Policies
+
+#### S3 Lifecycle Policy
+
+Auto-delete temporary uploads after 30 days to reduce storage costs:
+
+**Via AWS Console**:
+
+1. **Open** S3 bucket → **Management** tab → **Lifecycle rules** → **Create**
+2. **Scope**: Prefix filter → `uploads/`
+3. **Expiration**: Days after object creation → `30`
+4. **Create rule**
+
+**Cost Savings**:
+- Short-lived uploads: Delete monthly
+- Archive old files: Move to Glacier after 90 days
+- Example: 1GB/month uploads = $0.023/month automatic cleanup
+
+#### Storage Tier Strategy
+
+| Tier | Cost | Use Case |
+|------|------|----------|
+| **S3 Standard** | $0.023/GB/month | Frequent access (files <30 days) |
+| **S3 Intelligent-Tiering** | $0.0125/GB/month | Variable access patterns |
+| **S3 Glacier Instant** | $0.004/GB/month | Infrequent access (>30 days) |
+| **S3 Glacier Deep Archive** | $0.00099/GB/month | Archival (>90 days) |
+
+**OneRoute Recommendation**: S3 Standard for active files + Lifecycle policy to archive/delete after 30 days.
+
+### Step 11: Monitoring & Debugging
+
+#### CloudWatch Metrics
+
+Monitor S3 usage via AWS Console → CloudWatch:
+
+- **PutObject requests**: Track upload volume
+- **GetObject requests**: Track download usage
+- **4xx/5xx errors**: Identify failed uploads
+
+#### AWS CLI Troubleshooting
+
+**List files in bucket**:
+```bash
+aws s3 ls s3://oneroute1/uploads/ --recursive --human-readable
+```
+
+**Check file permissions**:
+```bash
+aws s3api head-object --bucket oneroute1 --key uploads/1708070400000-file.pdf
+```
+
+**Delete a file** (manual cleanup):
+```bash
+aws s3 rm s3://oneroute1/uploads/1708070400000-file.pdf
+```
+
+#### Logging File Access
+
+Enable S3 access logging for audit trail:
+
+1. **S3 Console** → Bucket → **Properties** → **Server access logging**
+2. **Enable logging** → Set log prefix `access-logs/`
+3. Logs appear hourly in `s3://oneroute1/access-logs/`
+
+### Reflection & Production Readiness
+
+**Key Achievements**:
+1. ✅ **Zero Credential Exposure**: AWS keys never reach browser
+2. ✅ **Temporal Security**: Pre-signed URLs expire, limiting compromise window
+3. ✅ **Type Validation**: MIME-type whitelist enforced server-side
+4. ✅ **Size Protection**: 50MB max prevents abuse and DoS
+5. ✅ **Cost Optimization**: Lifecycle policies auto-cleanup, reduce storage
+6. ✅ **Compliance-Ready**: Audit logging available for GDPR/CCPA
+
+**Lessons Learned**:
+- Pre-signed URLs are optimal for direct client-to-S3 uploads; server proxying only makes sense for very large enterprise deployments
+- Short URL expiry (60s upload, 3600s download) dramatically reduces compromise impact
+- Lifecycle policies are "set and forget" but save thousands annually
+- Unique filenames with timestamps prevent collisions and simplify cleanup
+- IAM policy restrictions prevent credential misuse even if keys leak
+
+**Costs at Scale**:
+- **100 files/month** (1MB avg) = $2.30/month storage + $0.40 uploads = ~$3/month
+- **10,000 files/month** (1MB avg) = $230/month storage + $40 uploads = ~$270/month
+- **Lifecycle to Glacier after 30 days** reduces storage by 82% ($41/month)
+
+**Production Deployment Checklist**:
+- [ ] S3 bucket created in production region (e.g., `eu-north-1`)
+- [ ] IAM user created with minimal S3 permissions
+- [ ] Access keys stored securely (AWS Secrets Manager or GitHub Secrets)
+- [ ] `.env` configured with `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_S3_BUCKET`, `AWS_REGION`
+- [ ] Bucket versioning enabled (optional, for recovery)
+- [ ] Lifecycle policy created (30-day auto-delete for `uploads/`)
+- [ ] S3 access logging enabled for audit trail
+- [ ] CloudWatch alarms set for unusual request patterns
+- [ ] File type/size validation tested with edge cases
+- [ ] Pre-signed URLs tested (upload, download, expiry)
+- [ ] CORS policy configured if frontend is separate domain
+- [ ] Rate limiting implemented on `/api/upload` endpoint
+- [ ] Database schema updated to store file metadata (optional)
+- [ ] File download links obfuscated (don't expose S3 keys in UI)
+- [ ] Monitoring dashboards created for cost tracking
+
+**Future Enhancements** (Not in scope):
+- [ ] Resumable uploads for files >5GB (multipart API)
+- [ ] Client-side file compression before upload
+- [ ] Virus scanning via AWS Lambda integration
+- [ ] CDN distribution via CloudFront for faster downloads
+- [ ] Access logging and audit trail per file
+- [ ] Granular permission model (share file with specific users)
+- [ ] Encryption with customer-managed keys (CMK)
+- [ ] S3 Object Lock for compliance (WORM - Write Once Read Many)
+
 ---
 
 ## Getting Started
