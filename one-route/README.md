@@ -2324,6 +2324,364 @@ export function DocumentUpload() {
 - [ ] Access logging and audit trail per file
 - [ ] Granular permission model (share file with specific users)
 
+## Section 18: Email Service (SendGrid)
+
+### Overview
+
+OneRoute uses **SendGrid** for reliable, scalable email delivery. This service handles transactional emails like welcome messages, password resets, and application status notifications.
+
+**Why SendGrid?**
+- **Deliverability**: 99.95% uptime with global infrastructure
+- **Security**: Authenticated sending via API keys with scoped permissions
+- **Analytics**: Track opens, clicks, bounces, and spam reports
+- **Templates**: Rich HTML support with personalization
+- **Cost Effective**: Pay-per-send model scales with usage
+
+### Setup Instructions
+
+#### 1. Create SendGrid Account
+
+1. Visit [sendgrid.com](https://sendgrid.com)
+2. Sign up for a free account (includes 100 free emails/day)
+3. Verify your email address
+
+#### 2. Verify Sender Email
+
+1. Go to **Settings → Sender Authentication**
+2. Click **Verify a Single Sender**
+3. Enter your sender email (e.g., `no-reply@yourdomain.com`)
+4. Click the verification link in the confirmation email
+
+**Production Note**: For production, use a branded domain. SendGrid will provide SPF/DKIM records to add to your DNS for authentication.
+
+#### 3. Generate Full Access API Key
+
+1. Navigate to **Settings → API Keys**
+2. Click **Create API Key**
+3. Select **Full Access** (or custom scope: `Mail Send`)
+4. Copy the API key (you'll only see it once)
+
+#### 4. Configure Environment Variables
+
+Add to `.env`:
+
+```env
+SENDGRID_API_KEY=your_sendgrid_api_key_here
+SENDGRID_SENDER=no-reply@yourdomain.com
+```
+
+#### 5. Install SDK
+
+```bash
+npm install @sendgrid/mail
+```
+
+### Email Templates
+
+OneRoute provides pre-designed templates in [`src/lib/emailTemplates.ts`](src/lib/emailTemplates.ts):
+
+| Template | Purpose | Variables |
+|----------|---------|-----------|
+| `welcomeTemplate()` | New user onboarding | `userName` |
+| `passwordResetTemplate()` | Password recovery | `userName`, `resetLink` |
+| `applicationStatusTemplate()` | Application decisions | `userName`, `applicationId`, `status`, `message` |
+| `contactFormResponseTemplate()` | Contact form confirmation | `senderName` |
+
+**Template Features**:
+- ✅ Responsive HTML design
+- ✅ Branded footer with support link
+- ✅ Color-coded status indicators
+- ✅ Accessible link formatting
+- ✅ Inline CSS (works in all email clients)
+
+### Implementing Email in Your Routes
+
+#### Example: Send Welcome Email on Signup
+
+In `src/app/api/auth/signup/route.ts`:
+
+```typescript
+import { welcomeTemplate } from "@/lib/emailTemplates";
+
+export async function POST(req: Request) {
+  // ... existing signup logic ...
+
+  // Send welcome email
+  try {
+    const response = await fetch("http://localhost:3000/api/email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: newUser.email,
+        subject: "Welcome to OneRoute 🚀",
+        html: welcomeTemplate(newUser.name),
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn("Email failed, but signup completed");
+    }
+  } catch (error) {
+    console.error("Email send error:", error);
+    // Don't fail signup if email fails
+  }
+
+  return NextResponse.json({ success: true, data: newUser });
+}
+```
+
+#### Example: Send Password Reset Email
+
+```typescript
+import { passwordResetTemplate } from "@/lib/emailTemplates";
+
+// In your password reset handler:
+const resetToken = generateToken(); // Your token generation logic
+const resetLink = `https://yourdomain.com/reset-password?token=${resetToken}`;
+
+await fetch("http://localhost:3000/api/email", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    to: user.email,
+    subject: "Reset Your OneRoute Password",
+    html: passwordResetTemplate(user.name, resetLink),
+  }),
+});
+```
+
+### Email API Endpoint
+
+**POST** `/api/email`
+
+Sends an email via SendGrid.
+
+**Request:**
+
+```bash
+curl -X POST http://localhost:3000/api/email \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "user@example.com",
+    "subject": "Welcome!",
+    "html": "<h3>Hello from OneRoute!</h3>"
+  }'
+```
+
+**Optional Parameters**:
+
+```json
+{
+  "to": "user@example.com",                    // Required: recipient(s)
+  "subject": "Subject Line",                   // Required
+  "html": "<h3>HTML content</h3>",            // Required
+  "from": "custom@yourdomain.com",            // Optional: overrides SENDGRID_SENDER
+  "replyTo": "support@yourdomain.com",        // Optional
+  "cc": ["manager@company.com"],              // Optional
+  "bcc": ["archive@company.com"]              // Optional
+}
+```
+
+**Success Response (200 OK):**
+
+```json
+{
+  "success": true,
+  "message": "Email sent successfully",
+  "messageId": "01010189b2example123",
+  "timestamp": "2026-02-17T10:30:00Z"
+}
+```
+
+**Error Response (400 Bad Request):**
+
+```json
+{
+  "success": false,
+  "error": "Missing required fields: to, subject, html"
+}
+```
+
+**Error Response (500 Internal Server Error):**
+
+```json
+{
+  "success": false,
+  "error": "Failed to send email",
+  "details": "API key not authenticated"  // Only in development
+}
+```
+
+### Health Check
+
+**GET** `/api/email`
+
+Checks if SendGrid is configured.
+
+```bash
+curl http://localhost:3000/api/email
+```
+
+**Response:**
+
+```json
+{
+  "status": "configured",
+  "service": "SendGrid",
+  "sender": "no-reply@yourdomain.com"
+}
+```
+
+### Testing Your Email Service
+
+#### Test 1: Basic Email Send
+
+```bash
+curl -X POST http://localhost:3000/api/email \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "your-email@example.com",
+    "subject": "Test Email from OneRoute",
+    "html": "<h2>Hello! 🎉</h2><p>This is a test email.</p>"
+  }'
+```
+
+**Expected Response**:
+```json
+{
+  "success": true,
+  "message": "Email sent successfully",
+  "messageId": "01010189b2example123",
+  "timestamp": "2026-02-17T10:30:00Z"
+}
+```
+
+Check your inbox — the email should arrive in seconds.
+
+#### Test 2: Using Postman
+
+1. **Method**: POST
+2. **URL**: `http://localhost:3000/api/email`
+3. **Headers**:
+   - `Content-Type: application/json`
+4. **Body** (raw JSON):
+   ```json
+   {
+     "to": "your-email@example.com",
+     "subject": "Welcome to OneRoute",
+     "html": "<h3>Hello from OneRoute! 🚀</h3>"
+   }
+   ```
+5. Click **Send** and confirm successful response
+
+#### Test 3: SendGrid Dashboard
+
+1. Log in to [SendGrid Dashboard](https://app.sendgrid.com)
+2. Navigate to **Mail Send → Activity**
+3. You should see your test emails with:
+   - Delivery status (✓ Delivered, ⏱ Processing, ✗ Failed)
+   - Recipient email
+   - Subject line
+   - Timestamp
+
+### Troubleshooting
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| `401 Unauthorized` | Invalid/missing API key | Check `SENDGRID_API_KEY` in `.env` |
+| `403 Forbidden` | API key lacks permissions | Regenerate with "Full Access" scope |
+| `Emails not delivering` | Sender not verified | Verify email in **Settings → Sender Authentication** |
+| `Sandbox mode rejection` | Free account restrictions | Either verify all recipients or upgrade plan |
+| `Rate limit exceeded` | Too many requests (100/sec) | Implement backoff & exponential retry logic |
+| `Bounced emails in dashboard` | Invalid recipient address | Validate email format before sending |
+| `Email in spam folder` | DKIM/SPF not configured | Add DNS records from **Settings → Sender Authentication** |
+
+### Production Checklist
+
+- [ ] SendGrid account created with free or paid plan
+- [ ] Sender email verified in **Settings → Sender Authentication**
+- [ ] API key generated with appropriate permissions
+- [ ] `.env` variables set: `SENDGRID_API_KEY`, `SENDGRID_SENDER`
+- [ ] `@sendgrid/mail` package installed (`npm list @sendgrid/mail`)
+- [ ] Health check passes: `GET /api/email` returns 200
+- [ ] Test email sent and received successfully
+- [ ] SendGrid Dashboard accessed and audit trail verified
+- [ ] DKIM/SPF records added to DNS (for production domains)
+- [ ] Email templates tested with real user data
+- [ ] Error logging implemented (check [`src/lib/logger.ts`](src/lib/logger.ts))
+- [ ] Rate limiting considered for high-volume scenarios
+
+### Rate Limiting & Best Practices
+
+**SendGrid Limits**:
+- Free: 100 emails/day
+- Paid: 1–100,000+ emails/day depending on plan
+- Hard limit: 100 emails/second
+
+**Strategies**:
+1. **Queue System**: Use Redis/Bull to queue emails and process async
+2. **Batch Sending**: Group multiple recipients in a single API call (up to 1000 per)
+3. **Retry Logic**: Exponential backoff on 429 (rate limit) responses
+4. **Monitoring**: Log every send attempt in database for audit trail
+
+**Example Batch Sending**:
+
+```typescript
+const emails = [
+  { to: "user1@example.com", subject: "Hello User 1" },
+  { to: "user2@example.com", subject: "Hello User 2" },
+];
+
+const batchResponse = await fetch("http://localhost:3000/api/email", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    to: emails.map(e => e.to),  // Array of recipients
+    subject: "Bulk Newsletter",
+    html: "<h2>OneRoute Newsletter</h2>",
+  }),
+});
+```
+
+### Bounce & Complaint Handling
+
+SendGrid webhooks can notify you of:
+- **Bounces**: Permanent (invalid address) or temporary (mailbox full)
+- **Complaints**: User marked email as spam
+- **Opens/Clicks**: Engagement metrics
+
+**Enable Webhooks**:
+1. Go to **Settings → Mail Send → Event Webhook**
+2. Set Webhook URL: `https://yourdomain.com/api/webhooks/sendgrid`
+3. Subscribe to: Bounces, Complaints, Opens, Clicks
+4. Send test event and implement handler
+
+### Reflection & Security
+
+**Key Achievements**:
+1. ✅ **Verified Sender Auth**: SPF/DKIM prevent spoofing
+2. ✅ **Transactional Focus**: Triggered by user actions, not batch marketing
+3. ✅ **Template Consistency**: Unified brand, accessible HTML
+4. ✅ **Error Resilience**: Email failures don't block core flows
+5. ✅ **Audit Trail**: Every send logged with MessageID via logger
+
+**Lessons Learned**:
+- Free SendGrid accounts perfect for development; upgrade for production email volume
+- Verify sender address early to avoid sandbox limitations
+- Email delivery is immediate (usually <1s) when correctly configured
+- Always validate email format before sending to prevent bounces
+- Implement logging to troubleshoot delivery issues post-send
+
+**Future Enhancements** (Not in scope):
+- [ ] Email preference center (user can control frequency)
+- [ ] A/B testing templates (SendGrid built-in)
+- [ ] Advanced analytics dashboard (track opens, clicks per user)
+- [ ] Scheduled sends (send at optimal delivery time)
+- [ ] Dynamic content blocks (personalization variables)
+- [ ] Compliance helpers (unsubscribe links, CCPA requests)
+
+---
+
 ## Getting Started
 
 Run the development server from `one-route/`:
