@@ -127,7 +127,137 @@ Give callers actionable messages, but avoid leaking internal details.
 
 Postman collections work equally well; export them into `docs/api-tests/` and capture screenshots for evidence when submitting deliverables.
 
-## 7. Documentation Checklist
+## 7. AWS RDS PostgreSQL Database Configuration
+
+### Database Provisioning
+
+This project uses **AWS RDS PostgreSQL Flexible Server** for production data persistence:
+
+| Property | Value |
+|----------|-------|
+| **Provider** | AWS RDS |
+| **Region** | eu-north-1 (Ireland) |
+| **Database Engine** | PostgreSQL |
+| **Instance Endpoint** | `database-1.cbium462ijvv.eu-north-1.rds.amazonaws.com` |
+| **Port** | 5432 |
+| **Database Name** | postgres |
+| **Username** | albin |
+| **SSL Mode** | verify-full (with certificate) |
+
+### Connection Setup
+
+**1. Environment Configuration**
+
+Create `.env.local` with your database credentials (never commit this file):
+
+```bash
+# AWS RDS PostgreSQL Connection
+DATABASE_URL="postgresql://albin:YOUR_PASSWORD@database-1.cbium462ijvv.eu-north-1.rds.amazonaws.com:5432/postgres?sslmode=require"
+DB_HOST="database-1.cbium462ijvv.eu-north-1.rds.amazonaws.com"
+DB_PORT=5432
+DB_NAME="postgres"
+DB_USER="albin"
+DB_PASSWORD="YOUR_PASSWORD"
+DB_SSL_CERT_PATH="/certs/global-bundle.pem"
+```
+
+**2. Prisma Integration**
+
+The Prisma schema (`prisma/schema.prisma`) reads from `DATABASE_URL`:
+
+```prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+```
+
+**3. Application Connection** (via `src/lib/db.ts`)
+
+```typescript
+import { Pool } from 'pg';
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: true,
+    ca: fs.readFileSync(process.env.DB_SSL_CERT_PATH).toString(),
+  },
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+
+// Test connection
+export async function testDatabaseConnection(): Promise<boolean> {
+  try {
+    const result = await pool.query('SELECT NOW()');
+    console.log('✓ Database connection successful');
+    return true;
+  } catch (error) {
+    console.error('✗ Database connection failed:', error);
+    return false;
+  }
+}
+```
+
+**4. Verify Remote Access**
+
+Test the connection via API:
+
+```bash
+curl http://localhost:3000/api/db-test
+```
+
+Expected response:
+
+```json
+{
+  "status": "success",
+  "message": "Database connection successful",
+  "timestamp": "2025-02-18T10:30:45Z"
+}
+```
+
+Or use `psql` CLI:
+
+```bash
+psql "host=$RDSHOST port=5432 dbname=postgres user=albin sslmode=verify-full sslrootcert=/certs/global-bundle.pem password=<YOUR_PASSWORD>"
+```
+
+### Backup & Maintenance
+
+**AWS RDS Backup Settings:**
+- Automated daily backups with 7-day retention
+- Multi-AZ deployment enabled for high availability
+- Automated failover on primary instance failure
+
+**Future Scaling Considerations:**
+- Read replicas for load distribution across read-heavy workloads
+- Connection pooling (via Prisma or PgBouncer) for concurrent requests
+- Vertical scaling (instance type upgrade) if compute becomes a bottleneck
+
+### Network Configuration
+
+**Current Access Control:**
+- Public IP allowlisting enabled (security group rules)
+- Your local IP: Query `ipconfig` on Windows or `ifconfig` on Unix
+- Database accessible from app during development
+
+**Production Security Recommendations:**
+1. Restrict database security group to app server IP only
+2. Use VPC private subnets for app-to-database communication
+3. Enable encryption at rest and in transit (SSL/TLS)
+4. Implement database audit logging
+
+### Reflection
+
+**Trade-offs:**
+- **Public vs. Private Access**: Public access simplifies development but increases attack surface; switch to private VPC endpoint in production.
+- **Backup Strategy**: 7-day retention balances cost and disaster recovery; extend retention for compliance requirements.
+- **SSL Certificate**: AWS RDS certificates are rotated annually; monitor renewal notices or use Aurora serverless with automatic certificate management.
+
+## 8. Documentation Checklist
 
 Include the following in project docs:
 
@@ -136,7 +266,7 @@ Include the following in project docs:
 - Testing proof (curl transcripts, Postman screenshots in `docs/api-tests/`).
 - Reflection on naming consistency: aligning on lowercase plural nouns makes routes guessable, reduces client bugs, and simplifies onboarding because developers can infer endpoints from resource names alone.
 
-## 8. Unified Response Envelope
+## 9. Unified Response Envelope
 
 Standardizing response shapes keeps frontend code simple and observability tooling reliable. Every route in this project returns the same envelope:
 
