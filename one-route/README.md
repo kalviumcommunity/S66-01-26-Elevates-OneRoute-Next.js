@@ -257,7 +257,157 @@ psql "host=$RDSHOST port=5432 dbname=postgres user=albin sslmode=verify-full ssl
 - **Backup Strategy**: 7-day retention balances cost and disaster recovery; extend retention for compliance requirements.
 - **SSL Certificate**: AWS RDS certificates are rotated annually; monitor renewal notices or use Aurora serverless with automatic certificate management.
 
-## 8. Documentation Checklist
+## 8. Secrets Management with AWS Secrets Manager
+
+### Overview
+
+AWS Secrets Manager securely stores sensitive credentials (API keys, database passwords, JWT secrets) outside your codebase. Your app retrieves them at runtime, minimizing exposure and enabling secret rotation without code changes.
+
+| Feature | Benefit |
+|---------|---------|
+| **Encryption at Rest** | AES-256 encryption for all secrets |
+| **Automatic Rotation** | Update secrets without redeploying |
+| **Audit Logging** | CloudTrail tracks access to secrets |
+| **Access Control** | IAM policies restrict who can read secrets |
+
+### Configuration
+
+**1. Store Secrets in AWS Secrets Manager**
+
+Your secret ARN:
+```
+arn:aws:secretsmanager:eu-north-1:157030764557:secret:oneroute_secrets-31ItBP
+```
+
+Secret structure (JSON):
+```json
+{
+  "DB_PASSWORD": "your_database_password",
+  "JWT_SECRET": "your_jwt_secret_key",
+  "API_KEY": "your_api_key",
+  "SENDGRID_API_KEY": "your_sendgrid_key"
+}
+```
+
+**2. Set Environment Variables**
+
+Add to `.env`:
+```dotenv
+SECRET_ARN="arn:aws:secretsmanager:eu-north-1:157030764557:secret:oneroute_secrets-31ItBP"
+AWS_REGION="eu-north-1"
+AWS_SDK_LOAD_CONFIG=1
+```
+
+**3. IAM Role Permissions**
+
+Your application needs IAM permissions to read the secret. Add this policy to your EC2/App Service IAM role:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:eu-north-1:157030764557:secret:oneroute_secrets-31ItBP"
+    }
+  ]
+}
+```
+
+### Runtime Retrieval
+
+**File:** `src/lib/secrets.ts`
+
+```typescript
+import AWS from 'aws-sdk';
+
+const client = new AWS.SecretsManager({ region: process.env.AWS_REGION });
+
+export async function getSecrets() {
+  const response = await client
+    .getSecretValue({ SecretId: process.env.SECRET_ARN })
+    .promise();
+  
+  return JSON.parse(response.SecretString);
+}
+
+export async function getSecret(key: string) {
+  const secrets = await getSecrets();
+  return secrets[key];
+}
+```
+
+**Usage in API routes:**
+
+```typescript
+import { getSecret } from '@/lib/secrets';
+
+export async function GET(req: Request) {
+  const jwtSecret = await getSecret('JWT_SECRET');
+  const sendgridKey = await getSecret('SENDGRID_API_KEY');
+  
+  // Use secrets securely
+  return Response.json({ status: 'ok' });
+}
+```
+
+### Validation
+
+**Test secrets retrieval at runtime:**
+
+```bash
+curl http://localhost:3000/api/secrets-test
+```
+
+Expected response:
+```json
+{
+  "success": true,
+  "message": "Secrets validation successful",
+  "data": {
+    "status": "success",
+    "secretCount": 4,
+    "secretKeys": ["DB_PASSWORD", "JWT_SECRET", "API_KEY", "SENDGRID_API_KEY"],
+    "timestamp": "2026-02-18T10:30:45Z"
+  }
+}
+```
+
+### Secret Rotation
+
+**Manual rotation steps:**
+1. Update the secret value in **AWS Secrets Manager Console**
+2. Call `clearSecretsCache()` to refresh the in-memory cache
+3. No redeployment needed
+
+**Automatic rotation (optional):**
+- AWS Secrets Manager can auto-rotate on a schedule (30, 60, 90 days)
+- Requires a Lambda function to perform the rotation
+- Useful for database passwords and API keys
+
+### Best Practices
+
+- ✅ **Never commit `.env`** with real secrets to version control
+- ✅ **Use IAM roles** instead of access keys for EC2/Lambda/Container deployments
+- ✅ **Cache secrets** with a TTL to reduce API calls (default: 1 hour)
+- ✅ **Audit access** via CloudTrail logs
+- ✅ **Rotate regularly** (monthly minimum for high-sensitive secrets)
+
+### Security Reflection
+
+**Advantages:**
+- Secrets are encrypted and isolated from application code
+- Rotation doesn't require redeployment
+- CloudTrail logs provide compliance audit trail
+
+**Potential Improvements:**
+- Implement secret versioning for canary deployments
+- Integrate with CI/CD to auto-rotate on each release
+- Use VPC endpoints to keep secret access within AWS network
+- Monitor failed access attempts with CloudWatch alarms
+
+## 9. Documentation Checklist
 
 Include the following in project docs:
 
